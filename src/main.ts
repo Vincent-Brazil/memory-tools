@@ -3,8 +3,10 @@ import './shared/theme.css';
 import { createInboxEntry, type CaptureType } from './github';
 import { getPat, clearPat, renderSetupScreen, wireSetupForm } from './shared/auth';
 import { getTheme, applyTheme, renderThemeSelect, wireThemeSelect } from './shared/theme';
+import { initUpdatePrompt } from './shared/updatePrompt';
 
 applyTheme(getTheme());
+initUpdatePrompt();
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 
@@ -50,8 +52,24 @@ function captureView() {
   `;
 }
 
+function prefillFromShare() {
+  const params = new URLSearchParams(location.search);
+  const title = params.get('title')?.trim();
+  const text = params.get('text')?.trim();
+  const url = params.get('url')?.trim();
+  if (!title && !text && !url) return;
+
+  const combined = [title, text, url].filter(Boolean).join('\n');
+  document.querySelector<HTMLTextAreaElement>('#text-input')!.value = combined;
+  if (url && !text) {
+    document.querySelector<HTMLInputElement>('input[name="type"][value="link"]')!.checked = true;
+  }
+  history.replaceState(null, '', location.pathname);
+}
+
 function wireEvents(pat: string) {
   wireThemeSelect();
+  prefillFromShare();
 
   document.querySelector('#settings-btn')!.addEventListener('click', () => {
     if (confirm('Disconnect this device? You will need to paste the token again to capture from here.')) {
