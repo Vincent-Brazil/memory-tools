@@ -60,7 +60,10 @@ function buildTree(paths: string[]): TreeNode {
 }
 
 function sortTree(node: TreeNode) {
-  node.children.sort((a, b) => a.name.localeCompare(b.name));
+  node.children.sort((a, b) => {
+    if (a.isFile !== b.isFile) return a.isFile ? 1 : -1; // folders before files
+    return a.name.localeCompare(b.name);
+  });
   node.children.forEach(sortTree);
 }
 
@@ -70,9 +73,9 @@ function renderFileItem(node: TreeNode): string {
 }
 
 function renderFolder(node: TreeNode): string {
-  const files = node.children.filter((c) => c.isFile);
   const subfolders = node.children.filter((c) => !c.isFile);
-  const inner = files.map(renderFileItem).join('') + subfolders.map(renderFolder).join('');
+  const files = node.children.filter((c) => c.isFile);
+  const inner = subfolders.map(renderFolder).join('') + files.map(renderFileItem).join('');
   return `
     <details class="tree-folder" data-folder-path="${node.path}">
       <summary>${node.name}</summary>
@@ -82,16 +85,15 @@ function renderFolder(node: TreeNode): string {
 }
 
 function renderTree(root: TreeNode): string {
-  const rootFiles = root.children.filter((c) => c.isFile);
-  const rootFolders = root.children.filter((c) => !c.isFile);
-  rootFiles.sort((a, b) => {
-    if (a.path === 'index.md') return -1;
-    if (b.path === 'index.md') return 1;
-    return a.name.localeCompare(b.name);
-  });
+  const indexNode = root.children.find((c) => c.isFile && c.path === 'index.md');
+  const otherRootFiles = root.children
+    .filter((c) => c.isFile && c.path !== 'index.md')
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const rootFolders = root.children.filter((c) => !c.isFile).sort((a, b) => a.name.localeCompare(b.name));
   return (
-    `<div class="tree-root">${rootFiles.map(renderFileItem).join('')}</div>` +
-    `<div class="tree-folders">${rootFolders.map(renderFolder).join('')}</div>`
+    (indexNode ? `<div class="tree-home">${renderFileItem(indexNode)}</div>` : '') +
+    `<div class="tree-folders">${rootFolders.map(renderFolder).join('')}</div>` +
+    `<div class="tree-root">${otherRootFiles.map(renderFileItem).join('')}</div>`
   );
 }
 
