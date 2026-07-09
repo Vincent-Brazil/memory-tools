@@ -222,10 +222,12 @@ function wireShell(pat: string) {
   const openSidebar = () => {
     sidebar.classList.add('open');
     backdrop.hidden = false;
+    document.body.classList.add('sidebar-open');
   };
   const closeSidebar = () => {
     sidebar.classList.remove('open');
     backdrop.hidden = true;
+    document.body.classList.remove('sidebar-open');
   };
   toggle.addEventListener('click', () => (sidebar.classList.contains('open') ? closeSidebar() : openSidebar()));
   backdrop.addEventListener('click', closeSidebar);

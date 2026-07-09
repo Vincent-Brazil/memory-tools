@@ -437,4 +437,9 @@
   .content-column {
     padding: 4.5rem 1.25rem 4rem;
   }
+
+  body.sidebar-open .top-controls,
+  body.sidebar-open .settings-widget {
+    z-index: 5;
+  }
 }
