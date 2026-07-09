@@ -13,9 +13,8 @@
     <title>Memory Capture</title>
     <script>
       try {
-        if (localStorage.getItem('memory_tools_theme') === 'gemini') {
-          document.documentElement.setAttribute('data-theme', 'gemini');
-        }
+        var t = localStorage.getItem('memory_tools_theme');
+        if (t && t !== 'retro') document.documentElement.setAttribute('data-theme', t);
       } catch (e) {}
     </script>
   </head>

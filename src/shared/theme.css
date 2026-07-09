@@ -42,6 +42,66 @@
   --hero-gradient: linear-gradient(90deg, var(--accent-blue) 0%, var(--accent-violet) 50%, var(--accent-pink) 100%);
 }
 
+/* "Claude" — the CLI splash-screen mascot: near-black terminal,
+   red (not orange) as the one accent, white-gray text. */
+:root[data-theme='claude'] {
+  --bg: #0c0c0c;
+  --bg-raised: #171717;
+  --bg-hover: #212121;
+  --fg: #e9e9e9;
+  --muted: #8a8a8a;
+  --accent: #ef4444;
+  --accent-soft: rgba(239, 68, 68, 0.14);
+  --accent-warm: #f87171;
+  --accent-pink: #dc2626;
+  --accent-violet: #b91c1c;
+  --accent-blue: #ef4444;
+  --border: rgba(239, 68, 68, 0.16);
+  --error: #fca5a5;
+  --success: #4ade80;
+  --hero-gradient: linear-gradient(90deg, #b91c1c 0%, #ef4444 50%, #f87171 100%);
+}
+
+/* "Godzilla" — orange-pink-purple wordmark gradient, green/magenta
+   terminal accents. */
+:root[data-theme='godzilla'] {
+  --bg: #0d0d10;
+  --bg-raised: #17171c;
+  --bg-hover: #222228;
+  --fg: #e5e5ea;
+  --muted: #8a8a95;
+  --accent: #22c55e;
+  --accent-soft: rgba(34, 197, 94, 0.14);
+  --accent-warm: #fb923c;
+  --accent-pink: #ec4899;
+  --accent-violet: #a855f7;
+  --accent-blue: #fb923c;
+  --border: rgba(251, 146, 60, 0.15);
+  --error: #f87171;
+  --success: #4ade80;
+  --hero-gradient: linear-gradient(90deg, var(--accent-warm) 0%, var(--accent-pink) 55%, var(--accent-violet) 100%);
+}
+
+/* "Hackers" (1995) — Gibson-mainframe neon: electric cyan and
+   magenta on near-black, acid-green status accents. */
+:root[data-theme='hackers'] {
+  --bg: #05050a;
+  --bg-raised: #0d0d16;
+  --bg-hover: #171726;
+  --fg: #d6f9ff;
+  --muted: #6e7a8a;
+  --accent: #2ce8ff;
+  --accent-soft: rgba(44, 232, 255, 0.14);
+  --accent-warm: #ff2ee6;
+  --accent-pink: #ff5cc8;
+  --accent-violet: #b026ff;
+  --accent-blue: #2ce8ff;
+  --border: rgba(44, 232, 255, 0.18);
+  --error: #ff3b3b;
+  --success: #39ff88;
+  --hero-gradient: linear-gradient(90deg, var(--accent-blue) 0%, var(--accent-violet) 50%, var(--accent-warm) 100%);
+}
+
 body {
   background: var(--bg);
   font-family: var(--mono);
