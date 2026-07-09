@@ -194,7 +194,7 @@
   position: fixed;
   top: 0.9rem;
   left: 0.9rem;
-  z-index: 30;
+  z-index: 10;
   background: var(--bg-raised);
   border: 1px solid var(--border);
   color: var(--accent);
