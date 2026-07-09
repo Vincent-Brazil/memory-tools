@@ -5,9 +5,15 @@ import { fetchMarkdownTree, fetchFileContent, type MarkdownFile } from '../githu
 import { getPat, clearPat, renderSetupScreen, wireSetupForm } from '../shared/auth';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
+const MOBILE_BREAKPOINT = 860;
 
-let files: MarkdownFile[] = [];
-// basename (no extension) -> path, for resolving [[wikilink]]-style references
+interface TreeNode {
+  name: string;
+  path: string;
+  isFile: boolean;
+  children: TreeNode[];
+}
+
 let slugIndex = new Map<string, string>();
 
 function currentPath(): string {
@@ -32,6 +38,63 @@ function resolveRelative(baseDir: string, rel: string): string {
   return parts.join('/');
 }
 
+function buildTree(paths: string[]): TreeNode {
+  const root: TreeNode = { name: '', path: '', isFile: false, children: [] };
+  for (const path of paths) {
+    const parts = path.split('/');
+    let node = root;
+    let acc = '';
+    parts.forEach((part, i) => {
+      acc = acc ? `${acc}/${part}` : part;
+      const isFile = i === parts.length - 1;
+      let child = node.children.find((c) => c.name === part && c.isFile === isFile);
+      if (!child) {
+        child = { name: part, path: acc, isFile, children: [] };
+        node.children.push(child);
+      }
+      node = child;
+    });
+  }
+  sortTree(root);
+  return root;
+}
+
+function sortTree(node: TreeNode) {
+  node.children.sort((a, b) => a.name.localeCompare(b.name));
+  node.children.forEach(sortTree);
+}
+
+function renderFileItem(node: TreeNode): string {
+  const label = node.name.replace(/\.md$/, '');
+  return `<a class="tree-item" href="#/${encodeURIComponent(node.path)}" data-path="${node.path}">${label}</a>`;
+}
+
+function renderFolder(node: TreeNode): string {
+  const files = node.children.filter((c) => c.isFile);
+  const subfolders = node.children.filter((c) => !c.isFile);
+  const inner = files.map(renderFileItem).join('') + subfolders.map(renderFolder).join('');
+  return `
+    <details class="tree-folder" data-folder-path="${node.path}">
+      <summary>${node.name}</summary>
+      <div class="tree-folder-content">${inner}</div>
+    </details>
+  `;
+}
+
+function renderTree(root: TreeNode): string {
+  const rootFiles = root.children.filter((c) => c.isFile);
+  const rootFolders = root.children.filter((c) => !c.isFile);
+  rootFiles.sort((a, b) => {
+    if (a.path === 'index.md') return -1;
+    if (b.path === 'index.md') return 1;
+    return a.name.localeCompare(b.name);
+  });
+  return (
+    `<div class="tree-root">${rootFiles.map(renderFileItem).join('')}</div>` +
+    `<div class="tree-folders">${rootFolders.map(renderFolder).join('')}</div>`
+  );
+}
+
 async function boot() {
   const pat = getPat();
   if (!pat) {
@@ -44,13 +107,14 @@ async function boot() {
   wireShell(pat);
 
   try {
-    files = await fetchMarkdownTree(pat);
+    const files: MarkdownFile[] = (await fetchMarkdownTree(pat)).filter((f) => !f.path.startsWith('.claude/'));
     slugIndex = new Map();
     for (const f of files) {
       const base = f.path.split('/').pop()!.replace(/\.md$/, '');
       if (!slugIndex.has(base)) slugIndex.set(base, f.path);
     }
-    renderBrowseList();
+    const tree = buildTree(files.map((f) => f.path));
+    document.querySelector<HTMLElement>('#tree')!.innerHTML = renderTree(tree);
   } catch (err) {
     showError(err);
     return;
@@ -63,17 +127,20 @@ async function boot() {
 function shell(): string {
   return `
     <div class="viewer">
-      <header class="topbar">
-        <a href="../" class="back-link">&larr; Capture</a>
-        <button id="browse-btn" type="button">Browse</button>
-        <button id="settings-btn" type="button" aria-label="Disconnect this device">&#9881;</button>
-      </header>
-      <div id="browse-panel" class="browse-panel" hidden>
-        <input id="browse-filter" type="search" placeholder="Filter files…" />
-        <ul id="browse-list"></ul>
+      <button id="sidebar-toggle" class="sidebar-toggle-btn" type="button" aria-label="Toggle navigation">&#9776;</button>
+      <aside id="sidebar" class="sidebar">
+        <div class="sidebar-header">
+          <a href="../" class="back-link">&larr; Capture</a>
+          <button id="settings-btn" type="button" aria-label="Disconnect this device">&#9881;</button>
+        </div>
+        <input id="filter-input" class="sidebar-search" type="search" placeholder="Search…" autocomplete="off" />
+        <nav id="tree" class="tree"><p class="hint">Loading…</p></nav>
+      </aside>
+      <div id="sidebar-backdrop" class="sidebar-backdrop" hidden></div>
+      <div class="content-column">
+        <p id="breadcrumb" class="breadcrumb"></p>
+        <main id="content" class="doc"><p class="hint">Loading…</p></main>
       </div>
-      <p id="breadcrumb" class="breadcrumb"></p>
-      <main id="content" class="doc"><p class="hint">Loading…</p></main>
     </div>
   `;
 }
@@ -86,28 +153,54 @@ function wireShell(pat: string) {
     }
   });
 
-  const browseBtn = document.querySelector<HTMLButtonElement>('#browse-btn')!;
-  const browsePanel = document.querySelector<HTMLDivElement>('#browse-panel')!;
-  browseBtn.addEventListener('click', () => {
-    browsePanel.hidden = !browsePanel.hidden;
+  const sidebar = document.querySelector<HTMLElement>('#sidebar')!;
+  const backdrop = document.querySelector<HTMLElement>('#sidebar-backdrop')!;
+  const toggle = document.querySelector<HTMLButtonElement>('#sidebar-toggle')!;
+
+  const openSidebar = () => {
+    sidebar.classList.add('open');
+    backdrop.hidden = false;
+  };
+  const closeSidebar = () => {
+    sidebar.classList.remove('open');
+    backdrop.hidden = true;
+  };
+  toggle.addEventListener('click', () => (sidebar.classList.contains('open') ? closeSidebar() : openSidebar()));
+  backdrop.addEventListener('click', closeSidebar);
+  sidebar.addEventListener('click', (e) => {
+    if ((e.target as HTMLElement).closest('.tree-item') && window.innerWidth <= MOBILE_BREAKPOINT) closeSidebar();
   });
 
-  const filterInput = document.querySelector<HTMLInputElement>('#browse-filter')!;
-  filterInput.addEventListener('input', () => renderBrowseList(filterInput.value));
+  const filterInput = document.querySelector<HTMLInputElement>('#filter-input')!;
+  filterInput.addEventListener('input', () => applyFilter(filterInput.value));
 
   void pat;
 }
 
-function renderBrowseList(filter = '') {
-  const list = document.querySelector<HTMLUListElement>('#browse-list');
-  if (!list) return;
-  const term = filter.trim().toLowerCase();
-  const matches = files
-    .filter((f) => !term || f.path.toLowerCase().includes(term))
-    .sort((a, b) => a.path.localeCompare(b.path));
-  list.innerHTML = matches
-    .map((f) => `<li><a href="#/${encodeURIComponent(f.path)}">${f.path}</a></li>`)
-    .join('');
+function applyFilter(term: string) {
+  const t = term.trim().toLowerCase();
+  document.querySelectorAll<HTMLAnchorElement>('.tree-item').forEach((el) => {
+    const path = el.getAttribute('data-path') || '';
+    el.classList.toggle('hidden', Boolean(t) && !path.toLowerCase().includes(t));
+  });
+  document.querySelectorAll<HTMLDetailsElement>('.tree-folder').forEach((folder) => {
+    const hasVisible = !!folder.querySelector('.tree-item:not(.hidden)');
+    folder.classList.toggle('hidden', Boolean(t) && !hasVisible);
+    if (t && hasVisible) folder.open = true;
+  });
+}
+
+function updateActiveHighlight(path: string) {
+  document.querySelectorAll<HTMLAnchorElement>('.tree-item').forEach((el) => {
+    el.classList.toggle('active', el.getAttribute('data-path') === path);
+  });
+  const activeEl = document.querySelector<HTMLElement>(`.tree-item[data-path="${CSS.escape(path)}"]`);
+  let parent = activeEl?.closest('details');
+  while (parent) {
+    parent.setAttribute('open', '');
+    parent = parent.parentElement?.closest('details') ?? null;
+  }
+  activeEl?.scrollIntoView({ block: 'nearest' });
 }
 
 async function loadPage(pat: string, path: string) {
@@ -115,13 +208,14 @@ async function loadPage(pat: string, path: string) {
   const breadcrumb = document.querySelector<HTMLParagraphElement>('#breadcrumb')!;
   breadcrumb.textContent = path;
   content.innerHTML = '<p class="hint">Loading…</p>';
-  document.querySelector<HTMLDivElement>('#browse-panel')!.hidden = true;
+  updateActiveHighlight(path);
 
   try {
     const raw = await fetchFileContent(pat, path);
     const withWikilinks = raw.replace(/\[\[([a-zA-Z0-9\-_]+)\]\]/g, '[$1](wikilink:$1)');
     content.innerHTML = await marked.parse(withWikilinks);
     rewriteLinks(content, dirOf(path));
+    document.querySelector('.content-column')?.scrollTo(0, 0);
     window.scrollTo(0, 0);
   } catch (err) {
     showError(err, path);
