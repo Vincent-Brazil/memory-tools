@@ -130,9 +130,10 @@ function shell(): string {
   return `
     <div class="viewer">
       <button id="sidebar-toggle" class="sidebar-toggle-btn" type="button" aria-label="Toggle navigation">&#9776;</button>
+      <a href="../" class="capture-link" aria-label="Back to Capture">&larr; Capture</a>
       <aside id="sidebar" class="sidebar">
         <div class="sidebar-header">
-          <a href="../" class="back-link">&larr; Capture</a>
+          <span class="sidebar-title">memory</span>
           <button id="settings-btn" type="button" aria-label="Disconnect this device">&#9881;</button>
         </div>
         <input id="filter-input" class="sidebar-search" type="search" placeholder="Search…" autocomplete="off" />
