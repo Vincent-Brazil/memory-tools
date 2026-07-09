@@ -1,4 +1,5 @@
 import './style.css';
+import './shared/theme.css';
 import { createInboxEntry, type CaptureType } from './github';
 import { getPat, clearPat, renderSetupScreen, wireSetupForm } from './shared/auth';
 
@@ -17,25 +18,31 @@ function render() {
 
 function captureView() {
   return `
+    <div class="top-controls">
+      <a href="view/" class="ctrl-btn">View memory</a>
+      <button id="settings-btn" class="ctrl-btn" type="button" aria-label="Disconnect this device">&#9881;</button>
+    </div>
     <main class="screen">
-      <header class="topbar">
-        <h1>Capture</h1>
-        <nav class="nav-links">
-          <a href="view/">View memory</a>
-          <button id="settings-btn" type="button" aria-label="Disconnect this device">&#9881;</button>
-        </nav>
-      </header>
-      <form id="capture-form">
+      <h1 class="hero-title">&#10095; CAPTURE<span class="cursor">_</span></h1>
+      <form id="capture-form" class="capture-card">
         <div class="type-toggle" role="radiogroup" aria-label="Type">
-          <label><input type="radio" name="type" value="idea" checked /> Idea</label>
-          <label><input type="radio" name="type" value="task" /> Task</label>
-          <label><input type="radio" name="type" value="link" /> Link</label>
+          <label><input type="radio" name="type" value="idea" checked /> idea</label>
+          <label><input type="radio" name="type" value="task" /> task</label>
+          <label><input type="radio" name="type" value="link" /> link</label>
         </div>
-        <textarea id="text-input" placeholder="What's on your mind?" rows="6" required></textarea>
-        <button type="submit" id="submit-btn">Capture</button>
+        <div class="prompt-box">
+          <span class="prompt-arrow">&gt;</span>
+          <textarea id="text-input" placeholder="Type your idea, task, or link…" rows="3" required></textarea>
+        </div>
+        <button type="submit" id="submit-btn">Capture <span class="btn-arrow">&#8629;</span></button>
       </form>
       <p id="status" class="status" hidden></p>
     </main>
+    <footer class="status-bar">
+      <span class="status-path">~/memory/inbox</span>
+      <span class="status-conn">connected</span>
+      <span class="status-app">capture</span>
+    </footer>
   `;
 }
 

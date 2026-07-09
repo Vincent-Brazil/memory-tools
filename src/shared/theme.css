@@ -1,0 +1,27 @@
+/* Retro-terminal palette shared by both apps. Imported after style.css
+   in each entry so these tokens win the cascade (same specificity,
+   later source order). */
+:root {
+  color-scheme: dark;
+  --bg: #14152b;
+  --bg-raised: #1b1c3a;
+  --bg-hover: #262848;
+  --fg: #d9dbf7;
+  --muted: #7d7fae;
+  --accent: #67e8f9;
+  --accent-soft: rgba(103, 232, 249, 0.14);
+  --accent-warm: #fb923c;
+  --accent-pink: #f472b6;
+  --accent-violet: #a78bfa;
+  --accent-blue: #60a5fa;
+  --border: rgba(148, 156, 255, 0.16);
+  --error: #f87171;
+  --success: #4ade80;
+  --mono: ui-monospace, 'JetBrains Mono', 'Cascadia Code', 'SF Mono', Menlo, Consolas, monospace;
+  --pixel: 'Press Start 2P', var(--mono);
+}
+
+body {
+  background: var(--bg);
+  font-family: var(--mono);
+}

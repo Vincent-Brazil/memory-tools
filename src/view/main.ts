@@ -1,4 +1,5 @@
 import '../style.css';
+import '../shared/theme.css';
 import './view.css';
 import { marked } from 'marked';
 import { fetchMarkdownTree, fetchFileContent, type MarkdownFile } from '../github';

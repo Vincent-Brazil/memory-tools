@@ -1,32 +1,7 @@
-/* Forces a dedicated retro-terminal palette for the viewer, independent
-   of the capture app's light/dark-adaptive theme (loaded first; these
-   overrides win by source order). */
-:root {
-  color-scheme: dark;
-  --bg: #14152b;
-  --bg-raised: #1b1c3a;
-  --bg-hover: #262848;
-  --fg: #d9dbf7;
-  --muted: #7d7fae;
-  --accent: #67e8f9;
-  --accent-soft: rgba(103, 232, 249, 0.14);
-  --accent-warm: #fb923c;
-  --accent-pink: #f472b6;
-  --border: rgba(148, 156, 255, 0.16);
-  --error: #f87171;
-  --success: #4ade80;
-  --mono: ui-monospace, 'JetBrains Mono', 'Cascadia Code', 'SF Mono', Menlo, Consolas, monospace;
-}
-
-body {
-  background: var(--bg);
-}
-
 .viewer {
   display: grid;
   grid-template-columns: 260px 1fr;
   min-height: 100vh;
-  font-family: var(--mono);
 }
 
 /* Sidebar */
