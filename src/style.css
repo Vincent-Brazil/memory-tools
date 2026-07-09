@@ -325,6 +325,43 @@ button[type='submit']:disabled {
   color: var(--error);
 }
 
+.recent-list {
+  list-style: none;
+  margin: 1.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.recent-list:empty {
+  display: none;
+}
+
+.recent-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+  overflow: hidden;
+}
+
+.recent-type {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.recent-type::before {
+  content: '> ';
+}
+
+.recent-snippet {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Bottom status bar (Capture only) */
 
 .status-bar {

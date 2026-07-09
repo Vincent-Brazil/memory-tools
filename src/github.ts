@@ -2,6 +2,10 @@ const OWNER = 'Vincent-Brazil';
 const REPO = 'memory';
 const BRANCH = 'main';
 
+export function githubEditUrl(path: string): string {
+  return `https://github.com/${OWNER}/${REPO}/edit/${BRANCH}/${path}`;
+}
+
 export type CaptureType = 'idea' | 'task' | 'link';
 
 function authHeaders(pat: string) {
@@ -36,7 +40,7 @@ function fromBase64Utf8(base64: string): string {
   return new TextDecoder('utf-8').decode(bytes);
 }
 
-export async function createInboxEntry(pat: string, text: string, type: CaptureType): Promise<void> {
+export async function createInboxEntry(pat: string, text: string, type: CaptureType): Promise<string> {
   const iso = new Date().toISOString();
   const dateStr = iso.slice(0, 10);
   const path = `inbox/${dateStr}-${slugify(text)}.md`;
@@ -60,6 +64,33 @@ export async function createInboxEntry(pat: string, text: string, type: CaptureT
     const body = (await res.json().catch(() => ({}))) as { message?: string };
     throw new Error(body.message || `GitHub API error ${res.status}`);
   }
+
+  return path;
+}
+
+export async function validateToken(pat: string): Promise<void> {
+  const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/contents/index.md?ref=${BRANCH}`, {
+    headers: authHeaders(pat),
+  });
+  if (!res.ok) {
+    if (res.status === 401 || res.status === 403) {
+      throw new Error('Token rejected — check it has Contents access on the memory repo.');
+    }
+    if (res.status === 404) {
+      throw new Error("Token can't see the memory repo — check repository access.");
+    }
+    throw new Error(`GitHub API error ${res.status}`);
+  }
+}
+
+export async function fetchLastCommitDate(pat: string, path: string): Promise<string | null> {
+  const res = await fetch(
+    `https://api.github.com/repos/${OWNER}/${REPO}/commits?path=${encodeURIComponent(path)}&sha=${BRANCH}&per_page=1`,
+    { headers: authHeaders(pat) }
+  );
+  if (!res.ok) return null;
+  const data = (await res.json()) as { commit?: { committer?: { date?: string } } }[];
+  return data[0]?.commit?.committer?.date ?? null;
 }
 
 export interface MarkdownFile {

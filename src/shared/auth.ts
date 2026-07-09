@@ -1,3 +1,5 @@
+import { validateToken } from '../github';
+
 const PAT_KEY = 'memory_tools_pat';
 
 export const getPat = () => localStorage.getItem(PAT_KEY);
@@ -20,17 +22,32 @@ export function renderSetupScreen(): string {
 
 export function wireSetupForm(onSaved: () => void) {
   const form = document.querySelector<HTMLFormElement>('#setup-form')!;
-  form.addEventListener('submit', (e) => {
+  const submitBtn = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+  const errorEl = document.querySelector<HTMLParagraphElement>('#error')!;
+
+  form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const input = document.querySelector<HTMLTextAreaElement>('#pat-input')!;
     const value = input.value.trim();
-    const errorEl = document.querySelector<HTMLParagraphElement>('#error')!;
+    errorEl.hidden = true;
     if (!value) {
       errorEl.textContent = 'Paste a token first.';
       errorEl.hidden = false;
       return;
     }
-    setPat(value);
-    onSaved();
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Validating…';
+    try {
+      await validateToken(value);
+      setPat(value);
+      onSaved();
+    } catch (err) {
+      errorEl.textContent = err instanceof Error ? err.message : 'Could not validate that token.';
+      errorEl.hidden = false;
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Save';
+    }
   });
 }
