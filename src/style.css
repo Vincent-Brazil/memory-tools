@@ -65,28 +65,28 @@ body {
 
 .settings-widget {
   position: fixed;
-  bottom: 1rem;
+  bottom: 0.4rem;
   right: 1rem;
   z-index: 40;
 }
 
 .fab {
-  width: 2.5rem;
-  height: 2.5rem;
+  width: 2rem;
+  height: 2rem;
   border-radius: 6px;
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
-  color: var(--accent);
-  font-size: 1.15rem;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 1.05rem;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: opacity 0.15s ease;
+  transition: color 0.15s ease;
 }
 
 .fab:hover {
-  opacity: 0.8;
+  color: var(--accent);
 }
 
 .settings-menu {
@@ -98,10 +98,13 @@ body {
   border-radius: 8px;
   padding: 0.75rem;
   min-width: 190px;
-  display: flex;
   flex-direction: column;
   gap: 0.6rem;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.settings-menu:not([hidden]) {
+  display: flex;
 }
 
 .settings-row {
