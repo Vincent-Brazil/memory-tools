@@ -5,11 +5,9 @@ import { marked } from 'marked';
 import { fetchMarkdownTree, fetchFileContent, fetchLastCommitDate, githubEditUrl, type MarkdownFile } from '../github';
 import { getPat, clearPat, renderSetupScreen, wireSetupForm } from '../shared/auth';
 import { getTheme, applyTheme } from '../shared/theme';
-import { initUpdatePrompt } from '../shared/updatePrompt';
 import { renderSettingsWidget, wireSettingsWidget } from '../shared/settingsWidget';
 
 applyTheme(getTheme());
-initUpdatePrompt();
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 const MOBILE_BREAKPOINT = 860;

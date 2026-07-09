@@ -14,8 +14,7 @@ export default defineConfig({
   },
   plugins: [
     VitePWA({
-      registerType: 'prompt',
-      injectRegister: false,
+      registerType: 'autoUpdate',
       includeAssets: ['icons/*.png'],
       manifest: {
         name: 'Memory Capture',

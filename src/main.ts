@@ -3,11 +3,9 @@ import './shared/theme.css';
 import { createInboxEntry, type CaptureType } from './github';
 import { getPat, clearPat, renderSetupScreen, wireSetupForm } from './shared/auth';
 import { getTheme, applyTheme } from './shared/theme';
-import { initUpdatePrompt } from './shared/updatePrompt';
 import { renderSettingsWidget, wireSettingsWidget } from './shared/settingsWidget';
 
 applyTheme(getTheme());
-initUpdatePrompt();
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 
