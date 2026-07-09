@@ -58,6 +58,18 @@ body {
   color: var(--muted);
 }
 
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.nav-links a {
+  color: var(--accent);
+  font-size: 0.9rem;
+  text-decoration: none;
+}
+
 h1 {
   font-size: 1.5rem;
 }

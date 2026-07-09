@@ -1,31 +1,18 @@
 import './style.css';
 import { createInboxEntry, type CaptureType } from './github';
+import { getPat, clearPat, renderSetupScreen, wireSetupForm } from './shared/auth';
 
-const PAT_KEY = 'memory_tools_pat';
 const app = document.querySelector<HTMLDivElement>('#app')!;
-
-const getPat = () => localStorage.getItem(PAT_KEY);
-const setPat = (pat: string) => localStorage.setItem(PAT_KEY, pat);
-const clearPat = () => localStorage.removeItem(PAT_KEY);
 
 function render() {
   const pat = getPat();
-  app.innerHTML = pat ? captureView() : setupView();
+  if (!pat) {
+    app.innerHTML = renderSetupScreen();
+    wireSetupForm(render);
+    return;
+  }
+  app.innerHTML = captureView();
   wireEvents(pat);
-}
-
-function setupView() {
-  return `
-    <main class="screen">
-      <h1>Memory Capture</h1>
-      <p class="hint">Paste your GitHub token to connect this device. It's stored only in this browser, never sent anywhere but GitHub.</p>
-      <form id="setup-form">
-        <textarea id="pat-input" placeholder="github_pat_..." rows="3" autocomplete="off" spellcheck="false"></textarea>
-        <button type="submit">Save</button>
-      </form>
-      <p id="error" class="error" hidden></p>
-    </main>
-  `;
 }
 
 function captureView() {
@@ -33,7 +20,10 @@ function captureView() {
     <main class="screen">
       <header class="topbar">
         <h1>Capture</h1>
-        <button id="settings-btn" type="button" aria-label="Disconnect this device">&#9881;</button>
+        <nav class="nav-links">
+          <a href="view/">View memory</a>
+          <button id="settings-btn" type="button" aria-label="Disconnect this device">&#9881;</button>
+        </nav>
       </header>
       <form id="capture-form">
         <div class="type-toggle" role="radiogroup" aria-label="Type">
@@ -49,25 +39,7 @@ function captureView() {
   `;
 }
 
-function wireEvents(pat: string | null) {
-  if (!pat) {
-    const form = document.querySelector<HTMLFormElement>('#setup-form')!;
-    form.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const input = document.querySelector<HTMLTextAreaElement>('#pat-input')!;
-      const value = input.value.trim();
-      const errorEl = document.querySelector<HTMLParagraphElement>('#error')!;
-      if (!value) {
-        errorEl.textContent = 'Paste a token first.';
-        errorEl.hidden = false;
-        return;
-      }
-      setPat(value);
-      render();
-    });
-    return;
-  }
-
+function wireEvents(pat: string) {
   document.querySelector('#settings-btn')!.addEventListener('click', () => {
     if (confirm('Disconnect this device? You will need to paste the token again to capture from here.')) {
       clearPat();

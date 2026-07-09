@@ -4,6 +4,14 @@ const BRANCH = 'main';
 
 export type CaptureType = 'idea' | 'task' | 'link';
 
+function authHeaders(pat: string) {
+  return {
+    Authorization: `Bearer ${pat}`,
+    Accept: 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+  };
+}
+
 function slugify(text: string): string {
   const base = text
     .toLowerCase()
@@ -16,7 +24,16 @@ function slugify(text: string): string {
 }
 
 function toBase64Utf8(input: string): string {
-  return btoa(unescape(encodeURIComponent(input)));
+  const bytes = new TextEncoder().encode(input);
+  let binary = '';
+  bytes.forEach((b) => (binary += String.fromCharCode(b)));
+  return btoa(binary);
+}
+
+function fromBase64Utf8(base64: string): string {
+  const binary = atob(base64.replace(/\n/g, ''));
+  const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+  return new TextDecoder('utf-8').decode(bytes);
 }
 
 export async function createInboxEntry(pat: string, text: string, type: CaptureType): Promise<void> {
@@ -28,12 +45,7 @@ export async function createInboxEntry(pat: string, text: string, type: CaptureT
 
   const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/contents/${encodeURIComponent(path)}`, {
     method: 'PUT',
-    headers: {
-      Authorization: `Bearer ${pat}`,
-      Accept: 'application/vnd.github+json',
-      'Content-Type': 'application/json',
-      'X-GitHub-Api-Version': '2022-11-28',
-    },
+    headers: { ...authHeaders(pat), 'Content-Type': 'application/json' },
     body: JSON.stringify({
       message: `capture: ${type} — ${text.slice(0, 60)}`,
       content: toBase64Utf8(content),
@@ -48,4 +60,37 @@ export async function createInboxEntry(pat: string, text: string, type: CaptureT
     const body = (await res.json().catch(() => ({}))) as { message?: string };
     throw new Error(body.message || `GitHub API error ${res.status}`);
   }
+}
+
+export interface MarkdownFile {
+  path: string;
+}
+
+export async function fetchMarkdownTree(pat: string): Promise<MarkdownFile[]> {
+  const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/git/trees/${BRANCH}?recursive=1`, {
+    headers: authHeaders(pat),
+  });
+  if (!res.ok) {
+    if (res.status === 401 || res.status === 403) {
+      throw new Error('Token rejected — check it still has access to the memory repo.');
+    }
+    throw new Error(`Could not list files (${res.status})`);
+  }
+  const data = (await res.json()) as { tree: { path: string; type: string }[] };
+  return data.tree.filter((entry) => entry.type === 'blob' && entry.path.endsWith('.md')).map((entry) => ({ path: entry.path }));
+}
+
+export async function fetchFileContent(pat: string, path: string): Promise<string> {
+  const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/contents/${encodeURIComponent(path)}?ref=${BRANCH}`, {
+    headers: authHeaders(pat),
+  });
+  if (!res.ok) {
+    if (res.status === 404) throw new Error(`Not found in memory: ${path}`);
+    if (res.status === 401 || res.status === 403) {
+      throw new Error('Token rejected — check it still has access to the memory repo.');
+    }
+    throw new Error(`GitHub API error ${res.status}`);
+  }
+  const data = (await res.json()) as { content: string };
+  return fromBase64Utf8(data.content);
 }

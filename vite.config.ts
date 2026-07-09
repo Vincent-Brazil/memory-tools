@@ -1,8 +1,17 @@
+import { resolve } from 'node:path';
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
   base: '/memory-tools/',
+  build: {
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, 'index.html'),
+        view: resolve(__dirname, 'view/index.html'),
+      },
+    },
+  },
   plugins: [
     VitePWA({
       registerType: 'autoUpdate',
