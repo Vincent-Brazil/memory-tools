@@ -2,6 +2,9 @@ import './style.css';
 import './shared/theme.css';
 import { createInboxEntry, type CaptureType } from './github';
 import { getPat, clearPat, renderSetupScreen, wireSetupForm } from './shared/auth';
+import { getTheme, applyTheme, renderThemeSelect, wireThemeSelect } from './shared/theme';
+
+applyTheme(getTheme());
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 
@@ -19,6 +22,7 @@ function render() {
 function captureView() {
   return `
     <div class="top-controls">
+      ${renderThemeSelect()}
       <a href="view/" class="ctrl-btn">View memory</a>
       <button id="settings-btn" class="ctrl-btn" type="button" aria-label="Disconnect this device">&#9881;</button>
     </div>
@@ -47,6 +51,8 @@ function captureView() {
 }
 
 function wireEvents(pat: string) {
+  wireThemeSelect();
+
   document.querySelector('#settings-btn')!.addEventListener('click', () => {
     if (confirm('Disconnect this device? You will need to paste the token again to capture from here.')) {
       clearPat();

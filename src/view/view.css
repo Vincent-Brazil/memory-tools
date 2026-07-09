@@ -26,6 +26,19 @@
   padding: 0 0.25rem;
 }
 
+.sidebar-header #settings-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 1.15rem;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.sidebar-header #settings-btn:hover {
+  color: var(--accent);
+}
+
 .sidebar-title {
   color: var(--muted);
   font-size: 0.85rem;
@@ -173,28 +186,6 @@
   z-index: 19;
 }
 
-.capture-link {
-  position: fixed;
-  top: 0.9rem;
-  right: 0.9rem;
-  z-index: 30;
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
-  color: var(--accent);
-  border-radius: 4px;
-  padding: 0 0.75rem;
-  height: 2.25rem;
-  display: flex;
-  align-items: center;
-  font-family: var(--mono);
-  font-size: 0.85rem;
-  text-decoration: none;
-  transition: opacity 0.15s ease;
-}
-
-.capture-link:hover {
-  opacity: 0.75;
-}
 
 /* Content */
 

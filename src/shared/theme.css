@@ -1,6 +1,6 @@
-/* Retro-terminal palette shared by both apps. Imported after style.css
-   in each entry so these tokens win the cascade (same specificity,
-   later source order). */
+/* Retro-terminal palette(s) shared by both apps. Imported after
+   style.css in each entry so these tokens win the cascade. Theme
+   switching is a `data-theme` attribute on <html>; see theme.ts. */
 :root {
   color-scheme: dark;
   --bg: #14152b;
@@ -17,8 +17,29 @@
   --border: rgba(148, 156, 255, 0.16);
   --error: #f87171;
   --success: #4ade80;
+  --hero-gradient: linear-gradient(90deg, var(--accent-blue) 0%, var(--accent-pink) 100%);
   --mono: ui-monospace, 'JetBrains Mono', 'Cascadia Code', 'SF Mono', Menlo, Consolas, monospace;
   --pixel: 'Press Start 2P', var(--mono);
+}
+
+/* "Gemini Dark" — darker background, periwinkle accent, the
+   blue-violet-pink wordmark gradient from the reference screenshot. */
+:root[data-theme='gemini'] {
+  --bg: #0e0f1a;
+  --bg-raised: #151623;
+  --bg-hover: #1f2033;
+  --fg: #e6e6f0;
+  --muted: #85869c;
+  --accent: #7c9cff;
+  --accent-soft: rgba(124, 156, 255, 0.14);
+  --accent-warm: #f2836b;
+  --accent-pink: #ee6fa0;
+  --accent-violet: #9d7cf6;
+  --accent-blue: #5b8def;
+  --border: rgba(160, 170, 255, 0.14);
+  --error: #f87171;
+  --success: #57d38c;
+  --hero-gradient: linear-gradient(90deg, var(--accent-blue) 0%, var(--accent-violet) 50%, var(--accent-pink) 100%);
 }
 
 body {

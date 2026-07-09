@@ -4,6 +4,9 @@ import './view.css';
 import { marked } from 'marked';
 import { fetchMarkdownTree, fetchFileContent, type MarkdownFile } from '../github';
 import { getPat, clearPat, renderSetupScreen, wireSetupForm } from '../shared/auth';
+import { getTheme, applyTheme, renderThemeSelect, wireThemeSelect } from '../shared/theme';
+
+applyTheme(getTheme());
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 const MOBILE_BREAKPOINT = 860;
@@ -131,7 +134,10 @@ function shell(): string {
   return `
     <div class="viewer">
       <button id="sidebar-toggle" class="sidebar-toggle-btn" type="button" aria-label="Toggle navigation">&#9776;</button>
-      <a href="../" class="capture-link" aria-label="Back to Capture">&larr; Capture</a>
+      <div class="top-controls">
+        ${renderThemeSelect()}
+        <a href="../" class="ctrl-btn" aria-label="Back to Capture">&larr; Capture</a>
+      </div>
       <aside id="sidebar" class="sidebar">
         <div class="sidebar-header">
           <span class="sidebar-title">memory</span>
@@ -150,6 +156,8 @@ function shell(): string {
 }
 
 function wireShell(pat: string) {
+  wireThemeSelect();
+
   document.querySelector('#settings-btn')!.addEventListener('click', () => {
     if (confirm('Disconnect this device? You will need to paste the token again.')) {
       clearPat();

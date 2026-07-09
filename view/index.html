@@ -8,6 +8,13 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="apple-touch-icon" href="../icons/apple-touch-icon.png" />
     <title>Memory Viewer</title>
+    <script>
+      try {
+        if (localStorage.getItem('memory_tools_theme') === 'gemini') {
+          document.documentElement.setAttribute('data-theme', 'gemini');
+        }
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="app"></div>
