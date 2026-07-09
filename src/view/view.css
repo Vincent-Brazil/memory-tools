@@ -46,7 +46,7 @@
 }
 
 .sidebar-title::before {
-  content: '❯ ';
+  content: '> ';
   color: var(--accent);
 }
 
@@ -112,7 +112,7 @@
 }
 
 .tree-item.active::before {
-  content: '❯ ';
+  content: '> ';
 }
 
 .tree-item.hidden,

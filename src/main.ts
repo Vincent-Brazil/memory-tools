@@ -27,7 +27,7 @@ function captureView() {
       <button id="settings-btn" class="ctrl-btn" type="button" aria-label="Disconnect this device">&#9881;</button>
     </div>
     <main class="screen">
-      <h1 class="hero-title">&#10095; CAPTURE<span class="cursor">_</span></h1>
+      <h1 class="hero-title">&gt; CAPTURE<span class="cursor">_</span></h1>
       <form id="capture-form" class="capture-card">
         <div class="type-toggle" role="radiogroup" aria-label="Type">
           <label><input type="radio" name="type" value="idea" checked /> idea</label>
