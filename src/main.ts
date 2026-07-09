@@ -2,8 +2,9 @@ import './style.css';
 import './shared/theme.css';
 import { createInboxEntry, type CaptureType } from './github';
 import { getPat, clearPat, renderSetupScreen, wireSetupForm } from './shared/auth';
-import { getTheme, applyTheme, renderThemeSelect, wireThemeSelect } from './shared/theme';
+import { getTheme, applyTheme } from './shared/theme';
 import { initUpdatePrompt } from './shared/updatePrompt';
+import { renderSettingsWidget, wireSettingsWidget } from './shared/settingsWidget';
 
 applyTheme(getTheme());
 initUpdatePrompt();
@@ -24,9 +25,7 @@ function render() {
 function captureView() {
   return `
     <div class="top-controls">
-      ${renderThemeSelect()}
       <a href="view/" class="ctrl-btn">View memory</a>
-      <button id="settings-btn" class="ctrl-btn" type="button" aria-label="Disconnect this device">&#9881;</button>
     </div>
     <main class="screen">
       <h1 class="hero-title">&gt; CAPTURE<span class="cursor">_</span></h1>
@@ -46,9 +45,8 @@ function captureView() {
     </main>
     <footer class="status-bar">
       <span class="status-path">~/memory/inbox</span>
-      <span class="status-conn">connected</span>
-      <span class="status-app">capture</span>
     </footer>
+    ${renderSettingsWidget()}
   `;
 }
 
@@ -68,15 +66,11 @@ function prefillFromShare() {
 }
 
 function wireEvents(pat: string) {
-  wireThemeSelect();
-  prefillFromShare();
-
-  document.querySelector('#settings-btn')!.addEventListener('click', () => {
-    if (confirm('Disconnect this device? You will need to paste the token again to capture from here.')) {
-      clearPat();
-      render();
-    }
+  wireSettingsWidget(() => {
+    clearPat();
+    render();
   });
+  prefillFromShare();
 
   const form = document.querySelector<HTMLFormElement>('#capture-form')!;
   const statusEl = document.querySelector<HTMLParagraphElement>('#status')!;

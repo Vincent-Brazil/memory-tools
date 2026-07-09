@@ -91,6 +91,79 @@ body {
   opacity: 0.75;
 }
 
+/* Floating settings widget (theme + disconnect), bottom-right, same
+   spot in both apps regardless of whether a footer exists underneath. */
+
+.settings-widget {
+  position: fixed;
+  bottom: 1rem;
+  right: 1rem;
+  z-index: 40;
+}
+
+.fab {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 6px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  color: var(--accent);
+  font-size: 1.15rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.15s ease;
+}
+
+.fab:hover {
+  opacity: 0.8;
+}
+
+.settings-menu {
+  position: absolute;
+  bottom: calc(100% + 0.5rem);
+  right: 0;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem;
+  min-width: 190px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.settings-row .theme-select {
+  flex: 1;
+}
+
+.menu-disconnect {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--error);
+  border-radius: 6px;
+  padding: 0.45rem 0.6rem;
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.menu-disconnect:hover {
+  border-color: var(--error);
+}
+
 .theme-select {
   appearance: none;
   -webkit-appearance: none;
@@ -260,9 +333,7 @@ button[type='submit']:disabled {
   left: 0;
   right: 0;
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 1rem;
   padding: 0.6rem 1.25rem;
   border-top: 1px solid var(--border);
   background: var(--bg-raised);
@@ -273,19 +344,6 @@ button[type='submit']:disabled {
 .status-path {
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.status-conn {
-  color: var(--success);
-  white-space: nowrap;
-}
-
-.status-conn::before {
-  content: '● ';
-}
-
-.status-app {
   white-space: nowrap;
 }
 

@@ -4,8 +4,9 @@ import './view.css';
 import { marked } from 'marked';
 import { fetchMarkdownTree, fetchFileContent, type MarkdownFile } from '../github';
 import { getPat, clearPat, renderSetupScreen, wireSetupForm } from '../shared/auth';
-import { getTheme, applyTheme, renderThemeSelect, wireThemeSelect } from '../shared/theme';
+import { getTheme, applyTheme } from '../shared/theme';
 import { initUpdatePrompt } from '../shared/updatePrompt';
+import { renderSettingsWidget, wireSettingsWidget } from '../shared/settingsWidget';
 
 applyTheme(getTheme());
 initUpdatePrompt();
@@ -137,13 +138,11 @@ function shell(): string {
     <div class="viewer">
       <button id="sidebar-toggle" class="sidebar-toggle-btn" type="button" aria-label="Toggle navigation">&#9776;</button>
       <div class="top-controls">
-        ${renderThemeSelect()}
         <a href="../" class="ctrl-btn" aria-label="Back to Capture">&larr; Capture</a>
       </div>
       <aside id="sidebar" class="sidebar">
         <div class="sidebar-header">
           <span class="sidebar-title">memory</span>
-          <button id="settings-btn" type="button" aria-label="Disconnect this device">&#9881;</button>
         </div>
         <input id="filter-input" class="sidebar-search" type="search" placeholder="Search…" autocomplete="off" />
         <nav id="tree" class="tree"><p class="hint">Loading…</p></nav>
@@ -154,17 +153,14 @@ function shell(): string {
         <main id="content" class="doc"><p class="hint">Loading…</p></main>
       </div>
     </div>
+    ${renderSettingsWidget()}
   `;
 }
 
 function wireShell(pat: string) {
-  wireThemeSelect();
-
-  document.querySelector('#settings-btn')!.addEventListener('click', () => {
-    if (confirm('Disconnect this device? You will need to paste the token again.')) {
-      clearPat();
-      boot();
-    }
+  wireSettingsWidget(() => {
+    clearPat();
+    boot();
   });
 
   const sidebar = document.querySelector<HTMLElement>('#sidebar')!;
