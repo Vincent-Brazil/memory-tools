@@ -60,14 +60,14 @@ body {
   opacity: 0.75;
 }
 
-/* Floating settings widget (theme + disconnect), bottom-right, same
-   spot in both apps regardless of whether a footer exists underneath. */
+/* Settings widget (theme + disconnect) — inline with the "memory"
+   label on the left in both apps: next to the footer path on Capture,
+   next to the sidebar title on Viewer. */
 
 .settings-widget {
-  position: fixed;
-  bottom: 0.4rem;
-  right: 1rem;
-  z-index: 40;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
 }
 
 .fab {
@@ -92,7 +92,8 @@ body {
 .settings-menu {
   position: absolute;
   bottom: calc(100% + 0.5rem);
-  right: 0;
+  left: 0;
+  z-index: 50;
   background: var(--bg-raised);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -343,6 +344,7 @@ button[type='submit']:disabled {
   right: 0;
   display: flex;
   align-items: center;
+  gap: 0.6rem;
   padding: 0.6rem 1.25rem;
   border-top: 1px solid var(--border);
   background: var(--bg-raised);

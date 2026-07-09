@@ -22,7 +22,13 @@
 .sidebar-header {
   display: flex;
   align-items: center;
+  gap: 0.5rem;
   padding: 0 0.25rem;
+}
+
+.sidebar-header .settings-menu {
+  bottom: auto;
+  top: calc(100% + 0.5rem);
 }
 
 .sidebar-title {
@@ -438,8 +444,7 @@
     padding: 4.5rem 1.25rem 4rem;
   }
 
-  body.sidebar-open .top-controls,
-  body.sidebar-open .settings-widget {
+  body.sidebar-open .top-controls {
     z-index: 5;
   }
 }

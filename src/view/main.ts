@@ -185,6 +185,7 @@ function shell(): string {
       <aside id="sidebar" class="sidebar">
         <div class="sidebar-header">
           <span class="sidebar-title">memory</span>
+          ${renderSettingsWidget()}
         </div>
         <input id="filter-input" class="sidebar-search" type="search" placeholder="Search…" autocomplete="off" />
         <p id="search-status" class="search-status" hidden></p>
@@ -203,7 +204,6 @@ function shell(): string {
         <main id="content" class="doc"><p class="hint">Loading…</p></main>
       </div>
     </div>
-    ${renderSettingsWidget()}
   `;
 }
 

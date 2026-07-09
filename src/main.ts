@@ -108,8 +108,8 @@ function captureView() {
     </main>
     <footer class="status-bar">
       <span class="status-path">~/memory/inbox</span>
+      ${renderSettingsWidget()}
     </footer>
-    ${renderSettingsWidget()}
   `;
 }
 
