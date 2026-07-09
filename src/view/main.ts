@@ -2,7 +2,7 @@ import '../style.css';
 import '../shared/theme.css';
 import './view.css';
 import { marked } from 'marked';
-import { fetchMarkdownTree, fetchFileContent, type MarkdownFile } from '../github';
+import { fetchMarkdownTree, fetchFileContent, fetchLastCommitDate, githubEditUrl, type MarkdownFile } from '../github';
 import { getPat, clearPat, renderSetupScreen, wireSetupForm } from '../shared/auth';
 import { getTheme, applyTheme } from '../shared/theme';
 import { initUpdatePrompt } from '../shared/updatePrompt';
@@ -13,6 +13,10 @@ initUpdatePrompt();
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 const MOBILE_BREAKPOINT = 860;
+const RECENT_PAGES_KEY = 'memory_tools_recent_pages';
+const RECENT_PAGES_LIMIT = 5;
+const CONTENT_SEARCH_MIN_LENGTH = 3;
+const CONTENT_SEARCH_CONCURRENCY = 6;
 
 interface TreeNode {
   name: string;
@@ -22,6 +26,8 @@ interface TreeNode {
 }
 
 let slugIndex = new Map<string, string>();
+const contentCache = new Map<string, string>();
+let searchGeneration = 0;
 
 function currentPath(): string {
   const hash = decodeURIComponent(location.hash.replace(/^#\/?/, ''));
@@ -43,6 +49,44 @@ function resolveRelative(baseDir: string, rel: string): string {
     else parts.push(part);
   }
   return parts.join('/');
+}
+
+async function getFileContent(pat: string, path: string): Promise<string> {
+  const cached = contentCache.get(path);
+  if (cached !== undefined) return cached;
+  const raw = await fetchFileContent(pat, path);
+  contentCache.set(path, raw);
+  return raw;
+}
+
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function loadRecentPages(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(RECENT_PAGES_KEY) ?? '[]');
+  } catch {
+    return [];
+  }
+}
+
+function pushRecentPage(path: string) {
+  if (path === 'index.md') return;
+  const list = [path, ...loadRecentPages().filter((p) => p !== path)].slice(0, RECENT_PAGES_LIMIT);
+  localStorage.setItem(RECENT_PAGES_KEY, JSON.stringify(list));
+  renderRecentPagesSection();
+}
+
+function renderRecentPagesSection() {
+  const el = document.querySelector<HTMLElement>('#recent-pages');
+  if (!el) return;
+  const paths = loadRecentPages();
+  el.innerHTML = paths.length
+    ? `<p class="tree-section-label">recent</p>${paths
+        .map((p) => `<a class="tree-item" href="#/${encodeURIComponent(p)}" data-path="${p}">${p.replace(/\.md$/, '')}</a>`)
+        .join('')}`
+    : '';
 }
 
 function buildTree(paths: string[]): TreeNode {
@@ -145,11 +189,19 @@ function shell(): string {
           <span class="sidebar-title">memory</span>
         </div>
         <input id="filter-input" class="sidebar-search" type="search" placeholder="Search…" autocomplete="off" />
+        <p id="search-status" class="search-status" hidden></p>
+        <div id="recent-pages" class="tree-recent"></div>
         <nav id="tree" class="tree"><p class="hint">Loading…</p></nav>
       </aside>
       <div id="sidebar-backdrop" class="sidebar-backdrop" hidden></div>
       <div class="content-column">
-        <p id="breadcrumb" class="breadcrumb"></p>
+        <div class="content-meta">
+          <p id="breadcrumb" class="breadcrumb"></p>
+          <div class="content-meta-right">
+            <span id="last-updated" class="last-updated"></span>
+            <a id="edit-link" class="edit-link" target="_blank" rel="noopener noreferrer">edit</a>
+          </div>
+        </div>
         <main id="content" class="doc"><p class="hint">Loading…</p></main>
       </div>
     </div>
@@ -162,6 +214,8 @@ function wireShell(pat: string) {
     clearPat();
     boot();
   });
+
+  renderRecentPagesSection();
 
   const sidebar = document.querySelector<HTMLElement>('#sidebar')!;
   const backdrop = document.querySelector<HTMLElement>('#sidebar-backdrop')!;
@@ -182,52 +236,126 @@ function wireShell(pat: string) {
   });
 
   const filterInput = document.querySelector<HTMLInputElement>('#filter-input')!;
-  filterInput.addEventListener('input', () => applyFilter(filterInput.value));
-
-  void pat;
+  let searchDebounce: ReturnType<typeof setTimeout> | undefined;
+  filterInput.addEventListener('input', () => {
+    applyPathFilter(filterInput.value);
+    clearTimeout(searchDebounce);
+    searchDebounce = setTimeout(() => void runContentSearch(pat, filterInput.value), 350);
+  });
 }
 
-function applyFilter(term: string) {
+function applyPathFilter(term: string) {
   const t = term.trim().toLowerCase();
   document.querySelectorAll<HTMLAnchorElement>('.tree-item').forEach((el) => {
     const path = el.getAttribute('data-path') || '';
     el.classList.toggle('hidden', Boolean(t) && !path.toLowerCase().includes(t));
+    el.classList.remove('content-match');
   });
+  updateFolderVisibility(Boolean(t));
+}
+
+function updateFolderVisibility(hasFilter: boolean) {
   document.querySelectorAll<HTMLDetailsElement>('.tree-folder').forEach((folder) => {
     const hasVisible = !!folder.querySelector('.tree-item:not(.hidden)');
-    folder.classList.toggle('hidden', Boolean(t) && !hasVisible);
-    if (t && hasVisible) folder.open = true;
+    folder.classList.toggle('hidden', hasFilter && !hasVisible);
+    if (hasFilter && hasVisible) folder.open = true;
   });
+}
+
+function setSearchStatus(text: string) {
+  const el = document.querySelector<HTMLParagraphElement>('#search-status');
+  if (!el) return;
+  el.textContent = text;
+  el.hidden = !text;
+}
+
+async function runContentSearch(pat: string, term: string) {
+  const t = term.trim().toLowerCase();
+  const generation = ++searchGeneration;
+  if (t.length < CONTENT_SEARCH_MIN_LENGTH) {
+    setSearchStatus('');
+    return;
+  }
+
+  const candidates = Array.from(document.querySelectorAll<HTMLAnchorElement>('.tree-item.hidden'));
+  if (!candidates.length) return;
+
+  setSearchStatus('searching file contents…');
+  let index = 0;
+  const worker = async () => {
+    while (index < candidates.length) {
+      const el = candidates[index++];
+      if (generation !== searchGeneration) return;
+      const path = el.getAttribute('data-path')!;
+      try {
+        const text = await getFileContent(pat, path);
+        if (generation !== searchGeneration) return;
+        if (text.toLowerCase().includes(t)) {
+          el.classList.remove('hidden');
+          el.classList.add('content-match');
+          updateFolderVisibility(true);
+        }
+      } catch {
+        // background search — individual fetch failures are not worth surfacing
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: CONTENT_SEARCH_CONCURRENCY }, worker));
+  if (generation === searchGeneration) setSearchStatus('');
 }
 
 function updateActiveHighlight(path: string) {
   document.querySelectorAll<HTMLAnchorElement>('.tree-item').forEach((el) => {
-    el.classList.toggle('active', el.getAttribute('data-path') === path);
+    const isActive = el.getAttribute('data-path') === path;
+    el.classList.toggle('active', isActive);
+    if (isActive) {
+      let parent = el.closest('details');
+      while (parent) {
+        parent.setAttribute('open', '');
+        parent = parent.parentElement?.closest('details') ?? null;
+      }
+    }
   });
-  const activeEl = document.querySelector<HTMLElement>(`.tree-item[data-path="${CSS.escape(path)}"]`);
-  let parent = activeEl?.closest('details');
-  while (parent) {
-    parent.setAttribute('open', '');
-    parent = parent.parentElement?.closest('details') ?? null;
-  }
-  activeEl?.scrollIntoView({ block: 'nearest' });
+  document.querySelector<HTMLElement>(`.tree-item[data-path="${CSS.escape(path)}"]`)?.scrollIntoView({ block: 'nearest' });
+}
+
+function styleLabelBadges(container: HTMLElement) {
+  container.querySelectorAll('code').forEach((code) => {
+    const text = code.textContent?.trim() ?? '';
+    if (!/^\[.+\]$/.test(text)) return;
+    code.classList.add('label-badge');
+    if (/dormant/i.test(text)) code.classList.add('label-dormant');
+    else if (/reference/i.test(text)) code.classList.add('label-reference');
+    else if (/active/i.test(text)) code.classList.add('label-active');
+  });
 }
 
 async function loadPage(pat: string, path: string) {
   const content = document.querySelector<HTMLElement>('#content')!;
   const breadcrumb = document.querySelector<HTMLParagraphElement>('#breadcrumb')!;
+  const updatedEl = document.querySelector<HTMLElement>('#last-updated')!;
+  const editLink = document.querySelector<HTMLAnchorElement>('#edit-link')!;
   breadcrumb.textContent = path;
+  updatedEl.textContent = '';
+  editLink.href = githubEditUrl(path);
   content.innerHTML = '<p class="hint">Loading…</p>';
-  updateActiveHighlight(path);
 
   try {
-    const raw = await fetchFileContent(pat, path);
+    const raw = await getFileContent(pat, path);
     const withWikilinks = raw.replace(/\[\[([a-zA-Z0-9\-_]+)\]\]/g, '[$1](wikilink:$1)');
     content.innerHTML = await marked.parse(withWikilinks);
     rewriteLinks(content, dirOf(path));
+    styleLabelBadges(content);
+    pushRecentPage(path);
+    updateActiveHighlight(path);
     document.querySelector('.content-column')?.scrollTo(0, 0);
     window.scrollTo(0, 0);
+
+    fetchLastCommitDate(pat, path).then((iso) => {
+      if (iso && currentPath() === path) updatedEl.textContent = `updated ${formatDate(iso)}`;
+    });
   } catch (err) {
+    updateActiveHighlight(path);
     showError(err, path);
   }
 }

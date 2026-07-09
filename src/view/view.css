@@ -57,6 +57,31 @@
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
+.search-status {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.tree-recent:empty {
+  display: none;
+}
+
+.tree-section-label {
+  margin: 0 0 0.15rem;
+  padding: 0 0.6rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.tree-recent .tree-item {
+  font-size: 0.8rem;
+}
+
 .tree {
   flex: 1;
   overflow-y: auto;
@@ -104,6 +129,16 @@
 .tree-item.hidden,
 .tree-folder.hidden {
   display: none;
+}
+
+.tree-item.content-match {
+  color: var(--accent-pink);
+}
+
+.tree-item.content-match::after {
+  content: ' ●';
+  font-size: 0.6em;
+  vertical-align: middle;
 }
 
 .tree-folder summary {
@@ -180,15 +215,51 @@
   padding: 2.5rem 3rem 6rem;
 }
 
+.content-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0 0 1.5rem;
+}
+
 .breadcrumb {
   color: var(--accent);
   font-size: 0.78rem;
-  margin: 0 0 1.5rem;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .breadcrumb::before {
   content: '~/memory/';
   color: var(--muted);
+}
+
+.content-meta-right {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.last-updated {
+  color: var(--muted);
+}
+
+.edit-link {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.edit-link:hover {
+  text-decoration: underline;
+}
+
+.edit-link::before {
+  content: '↗ ';
 }
 
 .doc {
@@ -305,6 +376,31 @@
   border: none;
   border-top: 1px solid var(--border);
   margin: 2rem 0;
+}
+
+.label-badge {
+  display: inline-block;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.78em;
+  font-weight: 600;
+  background: var(--bg-hover);
+  color: var(--muted);
+}
+
+.label-badge.label-active {
+  background: rgba(74, 222, 128, 0.14);
+  color: var(--success);
+}
+
+.label-badge.label-dormant {
+  background: var(--bg-hover);
+  color: var(--muted);
+}
+
+.label-badge.label-reference {
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 /* Mobile */
