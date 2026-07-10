@@ -122,6 +122,14 @@
   transition: background 0.12s ease, color 0.12s ease;
 }
 
+.tree-item:focus {
+  /* The .active class already shows which page is current; the
+     browser's own focus ring just lingers on whatever was last
+     clicked as you arrow-key between pages, which reads as two
+     conflicting selection indicators. */
+  outline: none;
+}
+
 .tree-item:hover {
   background: var(--bg-hover);
 }
@@ -222,7 +230,10 @@
 
 .content-column {
   min-width: 0;
-  padding: 2.5rem 3rem 6rem;
+  /* Top padding clears the fixed .top-controls box (top: 0.9rem,
+     ~2.25rem tall) so in-flow content — the meta bar, complete
+     button, etc. — never renders underneath it. */
+  padding: 4.25rem 3rem 6rem;
   overflow-x: hidden;
 }
 
