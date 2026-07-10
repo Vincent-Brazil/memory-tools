@@ -340,7 +340,7 @@ function wireSwipeNav() {
       const dx = e.changedTouches[0].clientX - startX;
       const dy = e.changedTouches[0].clientY - startY;
       if (Math.abs(dx) < SWIPE_THRESHOLD || Math.abs(dx) < Math.abs(dy) * 1.5) return;
-      navigateRelative(dx < 0 ? -1 : 1);
+      navigateRelative(dx < 0 ? 1 : -1);
     },
     { passive: true }
   );
