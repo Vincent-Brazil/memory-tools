@@ -445,7 +445,9 @@ function wireFolderAccordion(container: HTMLElement) {
       const filterTerm = document.querySelector<HTMLInputElement>('#filter-input')?.value.trim();
       if (filterTerm) return; // search may need several folders open at once
       container.querySelectorAll<HTMLDetailsElement>('.tree-folder').forEach((other) => {
-        if (other !== folder) other.open = false;
+        if (other === folder) return;
+        if (other.contains(folder)) return; // never collapse an ancestor of the folder that just opened
+        other.open = false;
       });
     },
     true
