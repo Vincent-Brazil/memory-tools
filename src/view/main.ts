@@ -379,7 +379,7 @@ function wireKeyboardNav() {
     const tag = target?.tagName;
     // Don't hijack arrow keys while typing/selecting in a form control.
     if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || target?.isContentEditable) return;
-    navigateRelative(e.key === 'ArrowLeft' ? 1 : -1);
+    navigateRelative(e.key === 'ArrowRight' ? 1 : -1);
   });
 }
 
