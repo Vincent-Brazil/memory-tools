@@ -434,9 +434,17 @@ button[type='submit']:disabled {
   text-align: center;
 }
 
-#setup-form textarea {
+#setup-form textarea,
+#setup-form input {
   padding: 0.75rem;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--bg);
+}
+
+#setup-form input:focus,
+#setup-form textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }

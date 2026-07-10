@@ -1,7 +1,7 @@
 import './style.css';
 import './shared/theme.css';
-import { createInboxEntry, type CaptureType } from './github';
-import { getPat, clearPat, renderSetupScreen, wireSetupForm } from './shared/auth';
+import { createInboxEntry, configureRepo, type CaptureType } from './github';
+import { getPat, clearPat, getRepo, clearRepo, renderSetupScreen, wireSetupForm } from './shared/auth';
 import { getTheme, applyTheme } from './shared/theme';
 import { renderSettingsWidget, wireSettingsWidget } from './shared/settingsWidget';
 
@@ -81,11 +81,13 @@ function renderRecentList(): string {
 
 function render() {
   const pat = getPat();
-  if (!pat) {
+  const repo = getRepo();
+  if (!pat || !repo) {
     app.innerHTML = renderSetupScreen();
     wireSetupForm(render);
     return;
   }
+  configureRepo(repo.owner, repo.repo);
   app.innerHTML = captureView();
   wireEvents(pat);
 }
@@ -158,6 +160,7 @@ function restoreDraft() {
 function wireEvents(pat: string) {
   wireSettingsWidget(() => {
     clearPat();
+    clearRepo();
     render();
   });
 

@@ -1,6 +1,13 @@
-const OWNER = 'Vincent-Brazil';
-const REPO = 'memory';
+let OWNER = '';
+let REPO = '';
 const BRANCH = 'main';
+
+/** Points every subsequent call at the given repo. Must be called once at
+ * boot (after setup) before any other function in this module is used. */
+export function configureRepo(owner: string, repo: string): void {
+  OWNER = owner;
+  REPO = repo;
+}
 
 export function githubEditUrl(path: string): string {
   return `https://github.com/${OWNER}/${REPO}/edit/${BRANCH}/${path}`;

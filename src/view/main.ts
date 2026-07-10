@@ -9,9 +9,10 @@ import {
   githubEditUrl,
   deleteInboxFile,
   updateFileContent,
+  configureRepo,
   type MarkdownFile,
 } from '../github';
-import { getPat, clearPat, renderSetupScreen, wireSetupForm } from '../shared/auth';
+import { getPat, clearPat, getRepo, clearRepo, renderSetupScreen, wireSetupForm } from '../shared/auth';
 import { getTheme, applyTheme } from '../shared/theme';
 import { renderSettingsWidget, wireSettingsWidget } from '../shared/settingsWidget';
 
@@ -244,11 +245,13 @@ function renderTree(root: TreeNode): string {
 
 async function boot() {
   const pat = getPat();
-  if (!pat) {
+  const repo = getRepo();
+  if (!pat || !repo) {
     app.innerHTML = renderSetupScreen();
     wireSetupForm(boot);
     return;
   }
+  configureRepo(repo.owner, repo.repo);
 
   app.innerHTML = shell();
   wireShell(pat);
@@ -386,6 +389,7 @@ function wireKeyboardNav() {
 function wireShell(pat: string) {
   wireSettingsWidget(() => {
     clearPat();
+    clearRepo();
     boot();
   });
 
