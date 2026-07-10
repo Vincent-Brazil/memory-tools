@@ -38,6 +38,26 @@ export function parseRepoInput(input: string): RepoConfig | null {
   return null;
 }
 
+// One silent retry for likely-transient network blips (a raw TypeError from
+// fetch itself) — a token/repo genuinely rejected by GitHub fails the same
+// way both times, so there's no point eating the delay for those.
+async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    if (!(err instanceof TypeError)) throw err;
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    return fn();
+  }
+}
+
+function describeError(err: unknown): string {
+  if (err instanceof TypeError) {
+    return "Couldn't reach GitHub — check your connection and try again.";
+  }
+  return err instanceof Error ? err.message : 'Could not validate that token.';
+}
+
 function escapeHtml(s: string): string {
   const map: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
   return s.replace(/[&<>"']/g, (c) => map[c]);
@@ -89,12 +109,12 @@ export function wireSetupForm(onSaved: () => void) {
     submitBtn.textContent = 'Validating…';
     try {
       configureRepo(parsedRepo.owner, parsedRepo.repo);
-      await validateToken(patValue);
+      await withRetry(() => validateToken(patValue));
       setPat(patValue);
       setRepo(parsedRepo);
       onSaved();
     } catch (err) {
-      errorEl.textContent = err instanceof Error ? err.message : 'Could not validate that token.';
+      errorEl.textContent = describeError(err);
       errorEl.hidden = false;
     } finally {
       submitBtn.disabled = false;
