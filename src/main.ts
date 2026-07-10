@@ -101,10 +101,13 @@ function captureView() {
           <span class="prompt-arrow">&gt;</span>
           <textarea id="text-input" placeholder="Type your idea, task, or link… (Ctrl/Cmd+Enter to send)" rows="3" required></textarea>
         </div>
-        <button type="submit" id="submit-btn">Capture <span class="btn-arrow">&#8629;</span></button>
+        <button type="submit" id="submit-btn"><span id="submit-label">Capture</span> <span class="btn-arrow">&#8629;</span></button>
       </form>
       <p id="status" class="status" hidden></p>
-      <ul id="recent-list" class="recent-list">${renderRecentList()}</ul>
+      <div id="recent-wrap" class="recent-wrap">
+        <p class="recent-title">recent</p>
+        <ul id="recent-list" class="recent-list">${renderRecentList()}</ul>
+      </div>
     </main>
     <footer class="status-bar">
       <span class="status-path">~/memory/inbox</span>
@@ -148,6 +151,7 @@ function wireEvents(pat: string) {
   const form = document.querySelector<HTMLFormElement>('#capture-form')!;
   const statusEl = document.querySelector<HTMLParagraphElement>('#status')!;
   const submitBtn = document.querySelector<HTMLButtonElement>('#submit-btn')!;
+  const submitLabel = document.querySelector<HTMLSpanElement>('#submit-label')!;
   const textInput = document.querySelector<HTMLTextAreaElement>('#text-input')!;
 
   const persistDraft = () => {
@@ -171,7 +175,7 @@ function wireEvents(pat: string) {
     if (!text) return;
 
     submitBtn.disabled = true;
-    submitBtn.textContent = 'Capturing…';
+    submitLabel.textContent = 'Capturing…';
     statusEl.hidden = true;
 
     try {
@@ -190,7 +194,7 @@ function wireEvents(pat: string) {
       statusEl.hidden = false;
     } finally {
       submitBtn.disabled = false;
-      submitBtn.textContent = 'Capture';
+      submitLabel.textContent = 'Capture';
     }
   });
 }
