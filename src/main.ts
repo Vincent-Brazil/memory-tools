@@ -122,6 +122,15 @@ function captureView() {
   `;
 }
 
+function looksLikeLinkShare(title?: string, text?: string, url?: string): boolean {
+  // Android's dedicated url field is the most reliable signal when it's
+  // populated, but plenty of apps (YouTube, Reddit, Twitter/X, ...) only
+  // ever fill `text` — sometimes with a URL plus other words around it —
+  // so fall back to spotting a URL anywhere in the shared text.
+  if (url) return true;
+  return /https?:\/\/\S+/i.test([title, text].filter(Boolean).join(' '));
+}
+
 function prefillFromShare(): boolean {
   const params = new URLSearchParams(location.search);
   const title = params.get('title')?.trim();
@@ -131,7 +140,7 @@ function prefillFromShare(): boolean {
 
   const combined = [title, text, url].filter(Boolean).join('\n');
   document.querySelector<HTMLTextAreaElement>('#text-input')!.value = combined;
-  if (url && !text) {
+  if (looksLikeLinkShare(title, text, url)) {
     document.querySelector<HTMLInputElement>('input[name="type"][value="link"]')!.checked = true;
   }
   history.replaceState(null, '', location.pathname);
