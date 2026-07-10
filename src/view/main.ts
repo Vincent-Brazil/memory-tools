@@ -254,7 +254,7 @@ async function boot() {
   wireShell(pat);
 
   try {
-    const files: MarkdownFile[] = (await fetchMarkdownTree(pat)).filter((f) => !f.path.startsWith('.claude/'));
+    const files: MarkdownFile[] = await fetchMarkdownTree(pat);
     slugIndex = new Map();
     for (const f of files) {
       const base = f.path.split('/').pop()!.replace(/\.md$/, '');
