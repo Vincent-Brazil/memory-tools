@@ -271,6 +271,7 @@ async function boot() {
   }
 
   wireSwipeNav();
+  wireKeyboardNav();
   await loadPage(pat, currentPath());
   window.addEventListener('hashchange', () => loadPage(pat, currentPath()));
 }
@@ -369,6 +370,17 @@ function wireSwipeNav() {
     },
     { passive: true }
   );
+}
+
+function wireKeyboardNav() {
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    const target = e.target as HTMLElement | null;
+    const tag = target?.tagName;
+    // Don't hijack arrow keys while typing/selecting in a form control.
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || target?.isContentEditable) return;
+    navigateRelative(e.key === 'ArrowRight' ? 1 : -1);
+  });
 }
 
 function wireShell(pat: string) {
