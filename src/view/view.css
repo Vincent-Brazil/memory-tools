@@ -737,6 +737,137 @@
   opacity: 0.15;
 }
 
+/* Triage view */
+
+.triage-view {
+  max-width: 760px;
+}
+
+.triage-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.triage-item {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.9rem 1rem;
+  background: var(--bg-raised);
+  transition: opacity 0.15s ease;
+}
+
+.triage-item.busy {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.triage-item-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.4rem;
+}
+
+.triage-type {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  background: var(--bg-hover);
+}
+
+.triage-type-idea {
+  color: var(--accent-blue);
+}
+
+.triage-type-task {
+  color: var(--accent-warm);
+}
+
+.triage-type-link {
+  color: var(--accent-pink);
+}
+
+.triage-path {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.triage-path:hover {
+  text-decoration: underline;
+}
+
+.triage-age {
+  color: var(--muted);
+  font-size: 0.75rem;
+  margin-left: auto;
+}
+
+.triage-snippet {
+  color: var(--fg);
+  font-size: 0.88rem;
+  margin: 0 0 0.6rem;
+  line-height: 1.5;
+}
+
+.triage-status {
+  margin: 0 0 0.6rem;
+  color: var(--success);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.triage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.triage-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  padding: 0.35rem 0.65rem;
+  cursor: pointer;
+}
+
+.triage-btn:hover {
+  border-color: var(--accent);
+}
+
+.triage-btn-merge {
+  color: var(--accent);
+}
+
+.triage-why {
+  color: var(--muted);
+}
+
+.triage-btn-promote {
+  color: var(--success);
+}
+
+.triage-btn-dismiss {
+  color: var(--muted);
+}
+
+.triage-btn-undo {
+  color: var(--error);
+}
+
 /* Mobile */
 
 @media (max-width: 860px) {

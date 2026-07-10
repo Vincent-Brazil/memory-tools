@@ -135,6 +135,18 @@ function parseFrontmatter(raw: string): { meta: Record<string, string>; body: st
   return { meta, body };
 }
 
+// Sets (or inserts, if absent) flat frontmatter fields — same convention
+// updateType already relies on (type: <value> as a single line), just
+// generalized to arbitrary keys instead of hardcoding 'type'.
+function setFrontmatterFields(raw: string, fields: Record<string, string>): string {
+  let out = raw;
+  for (const [key, value] of Object.entries(fields)) {
+    const re = new RegExp(`^${key}:.*$`, 'm');
+    out = re.test(out) ? out.replace(re, `${key}: ${value}`) : out.replace(/\n---\n/, `\n${key}: ${value}\n---\n`);
+  }
+  return out;
+}
+
 function renderMetaBar(meta: Record<string, string>, path: string): string {
   if (!Object.keys(meta).length) return '';
   const isInbox = path.startsWith('inbox/');
@@ -319,10 +331,14 @@ async function boot() {
   window.addEventListener('hashchange', () => void route(pat));
 }
 
-// "graph" is a reserved route, never a real content path (all real paths end
-// in .md, per fetchMarkdownTree's filter), so it can't collide with a file.
+// "graph" and "triage" are reserved routes, never real content paths (all
+// real paths end in .md, per fetchMarkdownTree's filter), so neither can
+// collide with a file.
 function route(pat: string): Promise<void> {
-  return currentPath() === 'graph' ? showGraphView(pat) : loadPage(pat, currentPath());
+  const path = currentPath();
+  if (path === 'graph') return showGraphView(pat);
+  if (path === 'triage') return showTriageView(pat);
+  return loadPage(pat, path);
 }
 
 function shell(): string {
@@ -337,7 +353,10 @@ function shell(): string {
           <span class="sidebar-title">&gt; memory</span>
           ${renderSettingsWidget()}
         </div>
-        <div class="tree-home"><a href="#/graph" class="tree-item graph-link">&#9711; graph</a></div>
+        <div class="tree-home">
+          <a href="#/triage" class="tree-item triage-link">&#9998; triage</a>
+          <a href="#/graph" class="tree-item graph-link">&#9711; graph</a>
+        </div>
         <input id="filter-input" class="sidebar-search" type="search" placeholder="Search…" autocomplete="off" />
         <p id="search-status" class="search-status" hidden></p>
         <div id="recent-pages"></div>
@@ -573,6 +592,7 @@ function updateActiveHighlight(path: string) {
   });
   document.querySelector<HTMLElement>(`#tree .tree-item[data-path="${CSS.escape(path)}"]`)?.scrollIntoView({ block: 'nearest' });
   document.querySelector<HTMLElement>('.graph-link')?.classList.toggle('active', path === 'graph');
+  document.querySelector<HTMLElement>('.triage-link')?.classList.toggle('active', path === 'triage');
 }
 
 function styleLabelBadges(container: HTMLElement) {
@@ -1097,6 +1117,173 @@ async function showGraphView(pat: string) {
     document.querySelector('.content-column')?.scrollTo(0, 0);
   } catch (err) {
     showError(err, undefined, () => void showGraphView(pat));
+  }
+}
+
+interface TriageItem {
+  path: string;
+  type: string | null;
+  snippet: string;
+  ageDays: number | null;
+  action: 'merge' | 'promote' | 'dismiss' | null;
+  target: string | null;
+  suggestions: { path: string; shared: string[] }[];
+}
+
+// A flat action queue, not a spatial map — the point isn't to visualize
+// the whole file graph, it's to answer "what should happen with this new
+// inbox item" one item at a time. Reuses the same term-overlap scoring the
+// graph's inferred-relations use, but only against non-inbox (curated)
+// content, since "merge into another unprocessed capture" isn't a
+// meaningful action here the way "merge into an existing project" is.
+async function buildTriageQueue(pat: string, paths: string[]): Promise<TriageItem[]> {
+  const inboxPaths = paths.filter((p) => p.startsWith('inbox/') && p !== 'inbox/README.md');
+  const metaByPath = new Map<string, Record<string, string>>();
+  const termsByPath = new Map<string, Set<string>>();
+  const snippetByPath = new Map<string, string>();
+
+  let index = 0;
+  const worker = async () => {
+    while (index < paths.length) {
+      const path = paths[index++];
+      try {
+        const raw = await getFileContent(pat, path);
+        const { meta, body } = parseFrontmatter(raw);
+        metaByPath.set(path, meta);
+        termsByPath.set(path, extractTerms(body));
+        snippetByPath.set(path, body.trim().slice(0, 160));
+      } catch {
+        metaByPath.set(path, {});
+        termsByPath.set(path, new Set());
+        snippetByPath.set(path, '');
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: GRAPH_FETCH_CONCURRENCY }, worker));
+
+  const docFreq = new Map<string, number>();
+  termsByPath.forEach((terms) => terms.forEach((t) => docFreq.set(t, (docFreq.get(t) ?? 0) + 1)));
+
+  const items: TriageItem[] = inboxPaths.map((path) => {
+    const meta = metaByPath.get(path) ?? {};
+    const myTerms = termsByPath.get(path) ?? new Set<string>();
+    const scored: { path: string; score: number; shared: string[] }[] = [];
+    termsByPath.forEach((terms, otherPath) => {
+      if (otherPath === path || otherPath.startsWith('inbox/')) return;
+      const { score, shared } = scoreOverlap(myTerms, terms, docFreq);
+      if (shared.length >= 2) scored.push({ path: otherPath, score, shared });
+    });
+    scored.sort((a, b) => b.score - a.score);
+
+    let ageDays: number | null = null;
+    if (meta.captured) {
+      const d = new Date(meta.captured);
+      if (!Number.isNaN(d.getTime())) ageDays = Math.floor((Date.now() - d.getTime()) / 86_400_000);
+    }
+
+    const action = meta.triage_action && meta.triage_action !== 'none' ? (meta.triage_action as TriageItem['action']) : null;
+    const target = meta.triage_target && meta.triage_target !== 'none' ? meta.triage_target : null;
+
+    return { path, type: meta.type ?? null, snippet: snippetByPath.get(path) ?? '', ageDays, action, target, suggestions: scored.slice(0, 3) };
+  });
+
+  // Needs-a-decision first (oldest first within that group); already-flagged
+  // items sink to the bottom since they're handled, not urgent.
+  items.sort((a, b) => {
+    if (!!a.action !== !!b.action) return a.action ? 1 : -1;
+    return (b.ageDays ?? 0) - (a.ageDays ?? 0);
+  });
+  return items;
+}
+
+function renderTriageItem(item: TriageItem): string {
+  const ageLabel = item.ageDays !== null ? `${item.ageDays}d ago` : '';
+  const typeLabel = item.type ? `<span class="triage-type triage-type-${item.type}">${item.type}</span>` : '';
+  const statusLabel = item.action
+    ? `<p class="triage-status">flagged: ${item.action}${item.target ? ` &rarr; ${item.target}` : ''}</p>`
+    : '';
+
+  const mergeButtons = item.suggestions
+    .map(
+      (s) =>
+        `<button type="button" class="triage-btn triage-btn-merge" data-path="${item.path}" data-action="merge" data-target="${s.path}">
+          merge &rarr; ${s.path} <span class="triage-why">(${s.shared.join(', ')})</span>
+        </button>`
+    )
+    .join('');
+
+  return `
+    <li class="triage-item" data-path="${item.path}">
+      <div class="triage-item-head">
+        ${typeLabel}
+        <a href="#/${encodeURIComponent(item.path)}" class="triage-path">${item.path}</a>
+        ${ageLabel ? `<span class="triage-age">${ageLabel}</span>` : ''}
+      </div>
+      <p class="triage-snippet">${item.snippet}</p>
+      ${statusLabel}
+      <div class="triage-actions">
+        ${mergeButtons}
+        <button type="button" class="triage-btn triage-btn-promote" data-path="${item.path}" data-action="promote">promote to new page</button>
+        <button type="button" class="triage-btn triage-btn-dismiss" data-path="${item.path}" data-action="dismiss">dismiss</button>
+        ${item.action ? `<button type="button" class="triage-btn triage-btn-undo" data-path="${item.path}" data-action="undo">undo</button>` : ''}
+      </div>
+    </li>
+  `;
+}
+
+function renderTriageView(items: TriageItem[]): string {
+  if (!items.length) return '<p class="hint">Inbox is empty — nothing to triage.</p>';
+  return `<ul class="triage-list">${items.map(renderTriageItem).join('')}</ul>`;
+}
+
+async function applyTriageAction(pat: string, path: string, action: string, target: string | undefined) {
+  const item = document.querySelector<HTMLElement>(`.triage-item[data-path="${CSS.escape(path)}"]`);
+  item?.classList.add('busy');
+  try {
+    const raw = await getFileContent(pat, path);
+    const fields =
+      action === 'undo' ? { triage_action: 'none', triage_target: 'none' } : { triage_action: action, triage_target: target ?? 'none' };
+    const newRaw = setFrontmatterFields(raw, fields);
+    await updateFileContent(pat, path, newRaw, `triage: ${path} -> ${action}${target ? ` (${target})` : ''}`);
+    contentCache.set(path, newRaw);
+    await showTriageView(pat);
+  } catch (err) {
+    alert(err instanceof Error ? err.message : 'Could not update triage flag.');
+    item?.classList.remove('busy');
+  }
+}
+
+function wireTriageActions(pat: string) {
+  document.querySelector<HTMLElement>('.triage-list')?.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('.triage-btn');
+    if (!btn) return;
+    void applyTriageAction(pat, btn.dataset.path!, btn.dataset.action!, btn.dataset.target);
+  });
+}
+
+async function showTriageView(pat: string) {
+  const breadcrumb = document.querySelector<HTMLParagraphElement>('#breadcrumb')!;
+  const updatedEl = document.querySelector<HTMLElement>('#last-updated')!;
+  const editLink = document.querySelector<HTMLAnchorElement>('#edit-link')!;
+  const completeBtn = document.querySelector<HTMLButtonElement>('#complete-btn')!;
+  const content = document.querySelector<HTMLElement>('#content')!;
+
+  breadcrumb.textContent = 'triage';
+  updatedEl.textContent = '';
+  editLink.hidden = true;
+  completeBtn.hidden = true;
+  updateActiveHighlight('triage');
+  content.classList.remove('doc');
+  content.classList.add('triage-view');
+  content.innerHTML = '<p class="hint">Building triage queue…</p>';
+
+  try {
+    const items = await buildTriageQueue(pat, navOrder);
+    content.innerHTML = renderTriageView(items);
+    wireTriageActions(pat);
+    document.querySelector('.content-column')?.scrollTo(0, 0);
+  } catch (err) {
+    showError(err, undefined, () => void showTriageView(pat));
   }
 }
 
