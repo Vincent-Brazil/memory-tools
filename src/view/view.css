@@ -653,6 +653,55 @@
   margin: 0;
 }
 
+.graph-suggestions {
+  flex-basis: 100%;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+}
+
+.graph-suggestions summary {
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+.graph-suggestions summary::-webkit-details-marker {
+  display: none;
+}
+
+.graph-suggestions-list {
+  list-style: none;
+  margin: 0.6rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.graph-suggestions-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  font-size: 0.78rem;
+}
+
+.graph-suggestions-list a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.graph-suggestions-list a:hover {
+  text-decoration: underline;
+}
+
+.graph-suggestion-text {
+  color: var(--muted);
+}
+
 .graph-svg {
   width: 100%;
   height: auto;
@@ -662,6 +711,13 @@
 .graph-edge {
   stroke: var(--border);
   stroke-width: 1;
+}
+
+.graph-edge.inferred {
+  stroke: var(--accent);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  opacity: 0.5;
 }
 
 .graph-node circle {

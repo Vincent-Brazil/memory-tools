@@ -48,6 +48,7 @@ interface GraphNode {
   path: string;
   label: GraphLabel | null;
   issues: string[];
+  suggestions: string[];
   x: number;
   y: number;
 }
@@ -55,7 +56,25 @@ interface GraphNode {
 interface GraphEdge {
   source: string;
   target: string;
+  inferred?: boolean;
 }
+
+// Common words filtered out before scoring content overlap between files —
+// deliberately small and blunt (this only needs to beat "shares a stopword"
+// as a bar, not do real NLP).
+const STOPWORDS = new Set([
+  'the', 'and', 'a', 'an', 'to', 'of', 'in', 'on', 'for', 'with', 'is', 'are', 'was', 'were', 'this', 'that', 'it',
+  'as', 'by', 'or', 'be', 'at', 'from', 'not', 'but', 'if', 'so', 'we', 'i', 'you', 'your', 'our', 'can', 'will',
+  'would', 'should', 'could', 'has', 'have', 'had', 'do', 'does', 'did', 'than', 'then', 'there', 'their', 'they',
+  'them', 'he', 'she', 'his', 'her', 'its', 'my', 'me', 'us', 'also', 'just', 'into', 'over', 'under', 'about',
+  'more', 'most', 'some', 'any', 'all', 'each', 'other', 'such', 'only', 'own', 'same', 'no', 'nor', 'too', 'very',
+  'one', 'two', 'three', 'new', 'via', 'per', 'out', 'up', 'down', 'off', 'how', 'what', 'when', 'where', 'why',
+  'which', 'who', 'whom', 'been', 'being', 'because', 'while', 'after', 'before', 'both', 'once', 'here', 'again',
+  // Pure URL-structure artifacts from link captures (github.com/owner/repo)
+  // — always present, never topical, and without these every link share
+  // "matches" every other link share regardless of what it's actually about.
+  'github', 'com', 'https', 'http', 'www',
+]);
 
 function currentPath(): string {
   const hash = decodeURIComponent(location.hash.replace(/^#\/?/, ''));
@@ -709,6 +728,40 @@ function extractLinks(body: string, path: string, knownPaths: Set<string>): { re
   return { resolved, broken };
 }
 
+// Top N most-frequent significant words in a doc, used as a cheap
+// content "signature" for inferring relatedness — no embeddings/backend,
+// just enough to beat noise for a triage hint.
+function extractTerms(body: string): Set<string> {
+  const words = body
+    .toLowerCase()
+    .replace(/`[^`]*`/g, ' ')
+    .replace(/\[\[([a-z0-9\-_]+)\]\]/g, ' $1 ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .split(' ')
+    .filter((w) => w.length > 2 && !/^\d+$/.test(w) && !STOPWORDS.has(w));
+  const freq = new Map<string, number>();
+  words.forEach((w) => freq.set(w, (freq.get(w) ?? 0) + 1));
+  return new Set(
+    Array.from(freq.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 15)
+      .map(([w]) => w)
+  );
+}
+
+// Shared *rare* terms count for more than shared common ones (a cheap
+// IDF stand-in) — otherwise words generic to this whole corpus (memory,
+// claude, capture...) would dominate every match with no real signal.
+function scoreOverlap(a: Set<string>, b: Set<string>, docFreq: Map<string, number>): { score: number; shared: string[] } {
+  const shared: { term: string; weight: number }[] = [];
+  a.forEach((term) => {
+    if (!b.has(term)) return;
+    shared.push({ term, weight: 1 / Math.log2(2 + (docFreq.get(term) ?? 1)) });
+  });
+  shared.sort((x, y) => y.weight - x.weight);
+  return { score: shared.reduce((sum, s) => sum + s.weight, 0), shared: shared.slice(0, 4).map((s) => s.term) };
+}
+
 async function buildGraphData(pat: string, paths: string[]): Promise<{ nodes: GraphNode[]; edges: GraphEdge[] }> {
   const knownPaths = new Set(paths);
   const nodes = new Map<string, GraphNode>();
@@ -716,6 +769,7 @@ async function buildGraphData(pat: string, paths: string[]): Promise<{ nodes: Gr
   const seenEdges = new Set<string>();
   const incoming = new Map<string, number>();
   const outgoing = new Map<string, number>();
+  const termsByPath = new Map<string, Set<string>>();
 
   let index = 0;
   const worker = async () => {
@@ -726,6 +780,7 @@ async function buildGraphData(pat: string, paths: string[]): Promise<{ nodes: Gr
         const { meta, body } = parseFrontmatter(raw);
         const { resolved, broken } = extractLinks(body, path, knownPaths);
         const issues = broken.map((b) => `broken link: ${b}`);
+        termsByPath.set(path, extractTerms(body));
 
         if (path.startsWith('inbox/') && meta.captured) {
           const capturedDate = new Date(meta.captured);
@@ -735,7 +790,7 @@ async function buildGraphData(pat: string, paths: string[]): Promise<{ nodes: Gr
           }
         }
 
-        nodes.set(path, { path, label: extractLabel(body), issues, x: 0, y: 0 });
+        nodes.set(path, { path, label: extractLabel(body), issues, suggestions: [], x: 0, y: 0 });
         outgoing.set(path, resolved.size);
         resolved.forEach((target) => {
           const key = [path, target].sort().join('|');
@@ -746,15 +801,38 @@ async function buildGraphData(pat: string, paths: string[]): Promise<{ nodes: Gr
           incoming.set(target, (incoming.get(target) ?? 0) + 1);
         });
       } catch {
-        nodes.set(path, { path, label: null, issues: ['could not load'], x: 0, y: 0 });
+        nodes.set(path, { path, label: null, issues: ['could not load'], suggestions: [], x: 0, y: 0 });
       }
     }
   };
   await Promise.all(Array.from({ length: GRAPH_FETCH_CONCURRENCY }, worker));
 
+  const docFreq = new Map<string, number>();
+  termsByPath.forEach((terms) => terms.forEach((t) => docFreq.set(t, (docFreq.get(t) ?? 0) + 1)));
+
   nodes.forEach((node) => {
     const hasLinks = (outgoing.get(node.path) ?? 0) > 0 || (incoming.get(node.path) ?? 0) > 0;
-    if (!hasLinks && node.path !== 'index.md') node.issues.push('orphaned (no links in or out)');
+    if (hasLinks) return;
+
+    // A fresh inbox capture with no links yet is expected, not a defect —
+    // a flat "orphaned" flag on every single one is just noise. Infer
+    // likely-related existing content instead, to help triage it.
+    if (node.path.startsWith('inbox/')) {
+      const myTerms = termsByPath.get(node.path);
+      if (!myTerms?.size) return;
+      const scored: { path: string; score: number; shared: string[] }[] = [];
+      termsByPath.forEach((terms, otherPath) => {
+        if (otherPath === node.path) return;
+        const { score, shared } = scoreOverlap(myTerms, terms, docFreq);
+        if (shared.length >= 2) scored.push({ path: otherPath, score, shared });
+      });
+      scored.sort((a, b) => b.score - a.score);
+      const top = scored.slice(0, 2);
+      top.forEach((m) => edges.push({ source: node.path, target: m.path, inferred: true }));
+      node.suggestions = top.map((m) => `${m.path} (${m.shared.join(', ')})`);
+    } else if (node.path !== 'index.md') {
+      node.issues.push('orphaned (no links in or out)');
+    }
   });
 
   return { nodes: [...nodes.values()], edges };
@@ -811,10 +889,14 @@ function layoutGraph(nodes: GraphNode[], edges: GraphEdge[], width: number, heig
       const a = byPath.get(e.source);
       const b = byPath.get(e.target);
       if (!a || !b) return;
+      // Inferred edges are a hint, not a fact — pull gently toward the
+      // related cluster rather than snapping to it like a real link.
+      const springK = e.inferred ? SPRING * 0.35 : SPRING;
+      const springLen = e.inferred ? SPRING_LEN * 1.6 : SPRING_LEN;
       let dx = b.x - a.x;
       let dy = b.y - a.y;
       const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
-      const displacement = (dist - SPRING_LEN) * SPRING;
+      const displacement = (dist - springLen) * springK;
       dx /= dist;
       dy /= dist;
       fx.set(a.path, fx.get(a.path)! + dx * displacement);
@@ -845,7 +927,8 @@ function renderGraphSvg(nodes: GraphNode[], edges: GraphEdge[], width: number, h
       const a = byPath.get(e.source);
       const b = byPath.get(e.target);
       if (!a || !b) return '';
-      return `<line x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" class="graph-edge" />`;
+      const cls = e.inferred ? 'graph-edge inferred' : 'graph-edge';
+      return `<line x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" class="${cls}" />`;
     })
     .join('');
 
@@ -853,7 +936,8 @@ function renderGraphSvg(nodes: GraphNode[], edges: GraphEdge[], width: number, h
     .map((n) => {
       const color = n.label ? GRAPH_LABEL_COLORS[n.label] : 'var(--border)';
       const flagged = n.issues.length > 0;
-      const tooltip = [n.path, ...n.issues].join(' — ');
+      const suggestionText = n.suggestions.map((s) => `related: ${s}`);
+      const tooltip = [n.path, ...n.issues, ...suggestionText].join(' — ');
       return `
         <a href="#/${encodeURIComponent(n.path)}" class="graph-node${flagged ? ' flagged' : ''}" data-label="${n.label ?? 'none'}">
           <circle cx="${n.x.toFixed(1)}" cy="${n.y.toFixed(1)}" r="${flagged ? 7 : 5}" fill="${color}" />
@@ -894,6 +978,21 @@ function renderGraphToolbar(nodes: GraphNode[]): string {
       </details>`
     : `<p class="graph-issues-clean">no data quality issues found</p>`;
 
+  const suggested = nodes.filter((n) => n.suggestions.length > 0);
+  const suggestionsPanel = suggested.length
+    ? `<details class="graph-suggestions">
+        <summary>${suggested.length} inbox item${suggested.length === 1 ? '' : 's'} with suggested relations</summary>
+        <ul class="graph-suggestions-list">
+          ${suggested
+            .map(
+              (n) =>
+                `<li><a href="#/${encodeURIComponent(n.path)}">${n.path}</a><span class="graph-suggestion-text">related to ${n.suggestions.join('; ')}</span></li>`
+            )
+            .join('')}
+        </ul>
+      </details>`
+    : '';
+
   return `
     <div class="graph-toolbar">
       <div class="graph-filters">
@@ -903,6 +1002,7 @@ function renderGraphToolbar(nodes: GraphNode[]): string {
         ${chip('none', 'unlabeled', counts.none)}
       </div>
       ${issuesPanel}
+      ${suggestionsPanel}
     </div>
   `;
 }
