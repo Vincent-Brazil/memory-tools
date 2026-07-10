@@ -125,3 +125,31 @@ export async function fetchFileContent(pat: string, path: string): Promise<strin
   const data = (await res.json()) as { content: string };
   return fromBase64Utf8(data.content);
 }
+
+export async function deleteInboxFile(pat: string, path: string): Promise<void> {
+  const getRes = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/contents/${encodeURIComponent(path)}?ref=${BRANCH}`, {
+    headers: authHeaders(pat),
+  });
+  if (!getRes.ok) {
+    if (getRes.status === 404) throw new Error('Already gone from inbox.');
+    throw new Error(`Could not look up file before removing it (${getRes.status})`);
+  }
+  const { sha } = (await getRes.json()) as { sha: string };
+
+  const delRes = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/contents/${encodeURIComponent(path)}`, {
+    method: 'DELETE',
+    headers: { ...authHeaders(pat), 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message: `complete: remove ${path} from inbox`,
+      sha,
+      branch: BRANCH,
+    }),
+  });
+  if (!delRes.ok) {
+    if (delRes.status === 401 || delRes.status === 403) {
+      throw new Error('Token rejected — check it still has write access to the memory repo.');
+    }
+    const body = (await delRes.json().catch(() => ({}))) as { message?: string };
+    throw new Error(body.message || `GitHub API error ${delRes.status}`);
+  }
+}

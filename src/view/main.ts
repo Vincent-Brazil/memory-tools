@@ -2,7 +2,14 @@ import '../style.css';
 import '../shared/theme.css';
 import './view.css';
 import { marked } from 'marked';
-import { fetchMarkdownTree, fetchFileContent, fetchLastCommitDate, githubEditUrl, type MarkdownFile } from '../github';
+import {
+  fetchMarkdownTree,
+  fetchFileContent,
+  fetchLastCommitDate,
+  githubEditUrl,
+  deleteInboxFile,
+  type MarkdownFile,
+} from '../github';
 import { getPat, clearPat, renderSetupScreen, wireSetupForm } from '../shared/auth';
 import { getTheme, applyTheme } from '../shared/theme';
 import { renderSettingsWidget, wireSettingsWidget } from '../shared/settingsWidget';
@@ -74,6 +81,17 @@ function pushRecentPage(path: string) {
   const list = [path, ...loadRecentPages().filter((p) => p !== path)].slice(0, RECENT_PAGES_LIMIT);
   localStorage.setItem(RECENT_PAGES_KEY, JSON.stringify(list));
   renderRecentPagesSection();
+}
+
+function removeRecentPage(path: string) {
+  localStorage.setItem(RECENT_PAGES_KEY, JSON.stringify(loadRecentPages().filter((p) => p !== path)));
+  renderRecentPagesSection();
+}
+
+function removeFromTree(path: string) {
+  document.querySelectorAll<HTMLAnchorElement>(`.tree-item[data-path="${CSS.escape(path)}"]`).forEach((el) => el.remove());
+  const base = path.split('/').pop()!.replace(/\.md$/, '');
+  if (slugIndex.get(base) === path) slugIndex.delete(base);
 }
 
 function renderRecentPagesSection() {
@@ -199,6 +217,7 @@ function shell(): string {
           <div class="content-meta-right">
             <span id="last-updated" class="last-updated"></span>
             <a id="edit-link" class="edit-link" target="_blank" rel="noopener noreferrer">edit</a>
+            <button id="complete-btn" class="complete-btn" type="button" hidden>&#10003; complete</button>
           </div>
         </div>
         <main id="content" class="doc"><p class="hint">Loading…</p></main>
@@ -214,6 +233,10 @@ function wireShell(pat: string) {
   });
 
   renderRecentPagesSection();
+
+  document.querySelector<HTMLButtonElement>('#complete-btn')!.addEventListener('click', () => {
+    void completeInboxItem(pat, currentPath());
+  });
 
   const sidebar = document.querySelector<HTMLElement>('#sidebar')!;
   const backdrop = document.querySelector<HTMLElement>('#sidebar-backdrop')!;
@@ -330,14 +353,41 @@ function styleLabelBadges(container: HTMLElement) {
   });
 }
 
+async function completeInboxItem(pat: string, path: string) {
+  const confirmed = confirm(
+    `Remove this from inbox?\n\n${path}\n\nDo this once you've processed or promoted it elsewhere — it can't be undone from here.`
+  );
+  if (!confirmed) return;
+
+  const completeBtn = document.querySelector<HTMLButtonElement>('#complete-btn')!;
+  completeBtn.disabled = true;
+  completeBtn.textContent = 'removing…';
+
+  try {
+    await deleteInboxFile(pat, path);
+    contentCache.delete(path);
+    removeFromTree(path);
+    removeRecentPage(path);
+    location.hash = '#/index.md';
+  } catch (err) {
+    alert(err instanceof Error ? err.message : 'Could not remove that file.');
+    completeBtn.disabled = false;
+    completeBtn.textContent = '✓ complete';
+  }
+}
+
 async function loadPage(pat: string, path: string) {
   const content = document.querySelector<HTMLElement>('#content')!;
   const breadcrumb = document.querySelector<HTMLParagraphElement>('#breadcrumb')!;
   const updatedEl = document.querySelector<HTMLElement>('#last-updated')!;
   const editLink = document.querySelector<HTMLAnchorElement>('#edit-link')!;
+  const completeBtn = document.querySelector<HTMLButtonElement>('#complete-btn')!;
   breadcrumb.textContent = path;
   updatedEl.textContent = '';
   editLink.href = githubEditUrl(path);
+  completeBtn.hidden = !path.startsWith('inbox/');
+  completeBtn.disabled = false;
+  completeBtn.textContent = '✓ complete';
   content.innerHTML = '<p class="hint">Loading…</p>';
 
   try {
