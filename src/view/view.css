@@ -547,6 +547,148 @@
   color: var(--accent);
 }
 
+/* Graph view */
+
+.graph-link {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.graph-view {
+  max-width: none;
+}
+
+.graph-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.6rem;
+  margin: 0 0 1.5rem;
+}
+
+.graph-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.graph-chip {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  padding: 0.25rem 0.65rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  transition: opacity 0.12s ease;
+}
+
+.graph-chip.off {
+  opacity: 0.4;
+}
+
+.graph-chip-count {
+  color: var(--muted);
+  font-size: 0.7em;
+}
+
+.graph-issues {
+  flex-basis: 100%;
+  background: rgba(248, 113, 113, 0.08);
+  border: 1px solid var(--error);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+}
+
+.graph-issues summary {
+  color: var(--error);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+.graph-issues summary::-webkit-details-marker {
+  display: none;
+}
+
+.graph-issues-list {
+  list-style: none;
+  margin: 0.6rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.graph-issues-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  font-size: 0.78rem;
+}
+
+.graph-issues-list a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.graph-issues-list a:hover {
+  text-decoration: underline;
+}
+
+.graph-issue-text {
+  color: var(--muted);
+}
+
+.graph-issues-clean {
+  flex-basis: 100%;
+  color: var(--success);
+  font-size: 0.8rem;
+  margin: 0;
+}
+
+.graph-svg {
+  width: 100%;
+  height: auto;
+  max-height: 70vh;
+}
+
+.graph-edge {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.graph-node circle {
+  transition: r 0.12s ease, opacity 0.15s ease;
+}
+
+.graph-node:hover circle {
+  r: 8;
+}
+
+.graph-node.flagged circle {
+  stroke: var(--error);
+  stroke-width: 2;
+}
+
+.graph-node.dimmed {
+  opacity: 0.15;
+}
+
+.graph-node-label {
+  fill: var(--muted);
+  font-family: var(--mono);
+  font-size: 9px;
+  text-anchor: middle;
+  pointer-events: none;
+}
+
 /* Mobile */
 
 @media (max-width: 860px) {

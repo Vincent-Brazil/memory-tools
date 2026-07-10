@@ -39,6 +39,23 @@ let navOrder: string[] = [];
 let pendingEnterAnim: 'enter-next' | 'enter-prev' | null = null;
 const INBOX_TYPES = ['idea', 'task', 'link'];
 const SWIPE_THRESHOLD = 60;
+const GRAPH_FETCH_CONCURRENCY = 6;
+const STALE_INBOX_DAYS = 14;
+
+type GraphLabel = 'active' | 'dormant' | 'reference';
+
+interface GraphNode {
+  path: string;
+  label: GraphLabel | null;
+  issues: string[];
+  x: number;
+  y: number;
+}
+
+interface GraphEdge {
+  source: string;
+  target: string;
+}
 
 function currentPath(): string {
   const hash = decodeURIComponent(location.hash.replace(/^#\/?/, ''));
@@ -275,8 +292,14 @@ async function boot() {
 
   wireSwipeNav();
   wireKeyboardNav();
-  await loadPage(pat, currentPath());
-  window.addEventListener('hashchange', () => loadPage(pat, currentPath()));
+  await route(pat);
+  window.addEventListener('hashchange', () => void route(pat));
+}
+
+// "graph" is a reserved route, never a real content path (all real paths end
+// in .md, per fetchMarkdownTree's filter), so it can't collide with a file.
+function route(pat: string): Promise<void> {
+  return currentPath() === 'graph' ? showGraphView(pat) : loadPage(pat, currentPath());
 }
 
 function shell(): string {
@@ -291,6 +314,7 @@ function shell(): string {
           <span class="sidebar-title">&gt; memory</span>
           ${renderSettingsWidget()}
         </div>
+        <div class="tree-home"><a href="#/graph" class="tree-item graph-link">&#9711; graph</a></div>
         <input id="filter-input" class="sidebar-search" type="search" placeholder="Search…" autocomplete="off" />
         <p id="search-status" class="search-status" hidden></p>
         <div id="recent-pages"></div>
@@ -525,6 +549,7 @@ function updateActiveHighlight(path: string) {
     }
   });
   document.querySelector<HTMLElement>(`#tree .tree-item[data-path="${CSS.escape(path)}"]`)?.scrollIntoView({ block: 'nearest' });
+  document.querySelector<HTMLElement>('.graph-link')?.classList.toggle('active', path === 'graph');
 }
 
 function styleLabelBadges(container: HTMLElement) {
@@ -570,9 +595,12 @@ async function loadPage(pat: string, path: string) {
   breadcrumb.textContent = path;
   updatedEl.textContent = '';
   editLink.href = githubEditUrl(path);
+  editLink.hidden = false;
   completeBtn.hidden = !path.startsWith('inbox/');
   completeBtn.disabled = false;
   completeBtn.textContent = '✓ complete';
+  content.classList.remove('graph-view');
+  content.classList.add('doc');
   content.innerHTML = '<p class="hint">Loading…</p>';
 
   try {
@@ -638,6 +666,296 @@ async function updateType(pat: string, path: string, newType: string, raw: strin
     alert(err instanceof Error ? err.message : 'Could not update type.');
   } finally {
     select.disabled = false;
+  }
+}
+
+// The `[active — ...]` / `[dormant]` / `[reference — ...]` badge convention
+// used throughout the repo always sits in a backtick span near the top of
+// the doc, right under the H1 — mirrors styleLabelBadges' classification,
+// just run against raw markdown instead of rendered <code> elements.
+function extractLabel(body: string): GraphLabel | null {
+  const match = body.slice(0, 400).match(/`(\[[^\]]+\])`/);
+  if (!match) return null;
+  const text = match[1];
+  if (/dormant/i.test(text)) return 'dormant';
+  if (/reference/i.test(text)) return 'reference';
+  if (/active/i.test(text)) return 'active';
+  return null;
+}
+
+function extractLinks(body: string, path: string, knownPaths: Set<string>): { resolved: Set<string>; broken: string[] } {
+  const resolved = new Set<string>();
+  const broken: string[] = [];
+  const baseDir = dirOf(path);
+
+  const wikiRe = /\[\[([a-zA-Z0-9\-_]+)\]\]/g;
+  let m: RegExpExecArray | null;
+  while ((m = wikiRe.exec(body))) {
+    const slug = m[1];
+    const target = slugIndex.get(slug);
+    if (target && knownPaths.has(target)) resolved.add(target);
+    else broken.push(`[[${slug}]]`);
+  }
+
+  const mdLinkRe = /\]\(([^)]+\.md)(?:#[^)]*)?\)/g;
+  while ((m = mdLinkRe.exec(body))) {
+    const rel = m[1];
+    if (/^https?:\/\//.test(rel)) continue;
+    const target = resolveRelative(baseDir, rel);
+    if (knownPaths.has(target)) resolved.add(target);
+    else broken.push(rel);
+  }
+
+  return { resolved, broken };
+}
+
+async function buildGraphData(pat: string, paths: string[]): Promise<{ nodes: GraphNode[]; edges: GraphEdge[] }> {
+  const knownPaths = new Set(paths);
+  const nodes = new Map<string, GraphNode>();
+  const edges: GraphEdge[] = [];
+  const seenEdges = new Set<string>();
+  const incoming = new Map<string, number>();
+  const outgoing = new Map<string, number>();
+
+  let index = 0;
+  const worker = async () => {
+    while (index < paths.length) {
+      const path = paths[index++];
+      try {
+        const raw = await getFileContent(pat, path);
+        const { meta, body } = parseFrontmatter(raw);
+        const { resolved, broken } = extractLinks(body, path, knownPaths);
+        const issues = broken.map((b) => `broken link: ${b}`);
+
+        if (path.startsWith('inbox/') && meta.captured) {
+          const capturedDate = new Date(meta.captured);
+          if (!Number.isNaN(capturedDate.getTime())) {
+            const ageDays = Math.floor((Date.now() - capturedDate.getTime()) / 86_400_000);
+            if (ageDays > STALE_INBOX_DAYS) issues.push(`stale in inbox (${ageDays}d)`);
+          }
+        }
+
+        nodes.set(path, { path, label: extractLabel(body), issues, x: 0, y: 0 });
+        outgoing.set(path, resolved.size);
+        resolved.forEach((target) => {
+          const key = [path, target].sort().join('|');
+          if (!seenEdges.has(key)) {
+            seenEdges.add(key);
+            edges.push({ source: path, target });
+          }
+          incoming.set(target, (incoming.get(target) ?? 0) + 1);
+        });
+      } catch {
+        nodes.set(path, { path, label: null, issues: ['could not load'], x: 0, y: 0 });
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: GRAPH_FETCH_CONCURRENCY }, worker));
+
+  nodes.forEach((node) => {
+    const hasLinks = (outgoing.get(node.path) ?? 0) > 0 || (incoming.get(node.path) ?? 0) > 0;
+    if (!hasLinks && node.path !== 'index.md') node.issues.push('orphaned (no links in or out)');
+  });
+
+  return { nodes: [...nodes.values()], edges };
+}
+
+// A minimal force-directed layout (repulsion + spring edges + mild
+// centering), settled synchronously over a fixed number of iterations —
+// no need for a physics library or continuous animation for a graph this
+// size, and a static settle-then-render is simpler than a live simulation.
+function layoutGraph(nodes: GraphNode[], edges: GraphEdge[], width: number, height: number) {
+  const byPath = new Map(nodes.map((n) => [n.path, n]));
+  const cx = width / 2;
+  const cy = height / 2;
+  const radius = Math.min(width, height) / 2.4;
+  nodes.forEach((n, i) => {
+    const angle = (i / nodes.length) * Math.PI * 2;
+    n.x = cx + Math.cos(angle) * radius * (0.4 + Math.random() * 0.6);
+    n.y = cy + Math.sin(angle) * radius * (0.4 + Math.random() * 0.6);
+  });
+
+  const REPULSION = 2600;
+  const SPRING = 0.02;
+  const SPRING_LEN = 70;
+  const CENTER_PULL = 0.006;
+  const STEP = 0.05;
+
+  for (let iter = 0; iter < 220; iter++) {
+    const fx = new Map<string, number>();
+    const fy = new Map<string, number>();
+    nodes.forEach((n) => {
+      fx.set(n.path, 0);
+      fy.set(n.path, 0);
+    });
+
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const a = nodes[i];
+        const b = nodes[j];
+        let dx = a.x - b.x;
+        let dy = a.y - b.y;
+        const distSq = dx * dx + dy * dy || 0.01;
+        const dist = Math.sqrt(distSq);
+        const force = REPULSION / distSq;
+        dx /= dist;
+        dy /= dist;
+        fx.set(a.path, fx.get(a.path)! + dx * force);
+        fy.set(a.path, fy.get(a.path)! + dy * force);
+        fx.set(b.path, fx.get(b.path)! - dx * force);
+        fy.set(b.path, fy.get(b.path)! - dy * force);
+      }
+    }
+
+    edges.forEach((e) => {
+      const a = byPath.get(e.source);
+      const b = byPath.get(e.target);
+      if (!a || !b) return;
+      let dx = b.x - a.x;
+      let dy = b.y - a.y;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
+      const displacement = (dist - SPRING_LEN) * SPRING;
+      dx /= dist;
+      dy /= dist;
+      fx.set(a.path, fx.get(a.path)! + dx * displacement);
+      fy.set(a.path, fy.get(a.path)! + dy * displacement);
+      fx.set(b.path, fx.get(b.path)! - dx * displacement);
+      fy.set(b.path, fy.get(b.path)! - dy * displacement);
+    });
+
+    nodes.forEach((n) => {
+      const fxv = fx.get(n.path)! + (cx - n.x) * CENTER_PULL;
+      const fyv = fy.get(n.path)! + (cy - n.y) * CENTER_PULL;
+      n.x += fxv * STEP;
+      n.y += fyv * STEP;
+    });
+  }
+}
+
+const GRAPH_LABEL_COLORS: Record<GraphLabel, string> = {
+  active: 'var(--success)',
+  dormant: 'var(--muted)',
+  reference: 'var(--accent)',
+};
+
+function renderGraphSvg(nodes: GraphNode[], edges: GraphEdge[], width: number, height: number): string {
+  const byPath = new Map(nodes.map((n) => [n.path, n]));
+  const edgeLines = edges
+    .map((e) => {
+      const a = byPath.get(e.source);
+      const b = byPath.get(e.target);
+      if (!a || !b) return '';
+      return `<line x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" class="graph-edge" />`;
+    })
+    .join('');
+
+  const nodeEls = nodes
+    .map((n) => {
+      const color = n.label ? GRAPH_LABEL_COLORS[n.label] : 'var(--border)';
+      const flagged = n.issues.length > 0;
+      const name = n.path.replace(/\.md$/, '').split('/').pop();
+      const tooltip = [n.path, ...n.issues].join(' — ');
+      return `
+        <a href="#/${encodeURIComponent(n.path)}" class="graph-node${flagged ? ' flagged' : ''}" data-label="${n.label ?? 'none'}">
+          <circle cx="${n.x.toFixed(1)}" cy="${n.y.toFixed(1)}" r="${flagged ? 7 : 5}" fill="${color}" />
+          ${flagged ? `<text x="${n.x.toFixed(1)}" y="${(n.y - 10).toFixed(1)}" class="graph-node-label">${name}</text>` : ''}
+          <title>${tooltip}</title>
+        </a>
+      `;
+    })
+    .join('');
+
+  return `<svg class="graph-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet">
+    <g class="graph-edges">${edgeLines}</g>
+    <g class="graph-nodes">${nodeEls}</g>
+  </svg>`;
+}
+
+function renderGraphToolbar(nodes: GraphNode[]): string {
+  const flagged = nodes.filter((n) => n.issues.length > 0);
+  const counts: Record<'active' | 'dormant' | 'reference' | 'none', number> = {
+    active: nodes.filter((n) => n.label === 'active').length,
+    dormant: nodes.filter((n) => n.label === 'dormant').length,
+    reference: nodes.filter((n) => n.label === 'reference').length,
+    none: nodes.filter((n) => !n.label).length,
+  };
+  const chip = (key: string, text: string, count: number) =>
+    `<button type="button" class="graph-chip" data-filter="${key}" aria-pressed="true">${text} <span class="graph-chip-count">${count}</span></button>`;
+
+  const issuesPanel = flagged.length
+    ? `<details class="graph-issues">
+        <summary>${flagged.length} data quality issue${flagged.length === 1 ? '' : 's'}</summary>
+        <ul class="graph-issues-list">
+          ${flagged
+            .map(
+              (n) =>
+                `<li><a href="#/${encodeURIComponent(n.path)}">${n.path}</a><span class="graph-issue-text">${n.issues.join('; ')}</span></li>`
+            )
+            .join('')}
+        </ul>
+      </details>`
+    : `<p class="graph-issues-clean">no data quality issues found</p>`;
+
+  return `
+    <div class="graph-toolbar">
+      <div class="graph-filters">
+        ${chip('active', 'active', counts.active)}
+        ${chip('dormant', 'dormant', counts.dormant)}
+        ${chip('reference', 'reference', counts.reference)}
+        ${chip('none', 'unlabeled', counts.none)}
+      </div>
+      ${issuesPanel}
+    </div>
+  `;
+}
+
+function applyGraphFilter() {
+  const activeFilters = new Set(
+    Array.from(document.querySelectorAll<HTMLButtonElement>('.graph-chip[aria-pressed="true"]')).map((c) => c.dataset.filter)
+  );
+  document.querySelectorAll<SVGAElement>('.graph-node').forEach((node) => {
+    const label = node.getAttribute('data-label') || 'none';
+    node.classList.toggle('dimmed', !activeFilters.has(label));
+  });
+}
+
+function wireGraphFilters() {
+  document.querySelectorAll<HTMLButtonElement>('.graph-chip').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      const pressed = chip.getAttribute('aria-pressed') === 'true';
+      chip.setAttribute('aria-pressed', String(!pressed));
+      chip.classList.toggle('off', pressed);
+      applyGraphFilter();
+    });
+  });
+}
+
+async function showGraphView(pat: string) {
+  const breadcrumb = document.querySelector<HTMLParagraphElement>('#breadcrumb')!;
+  const updatedEl = document.querySelector<HTMLElement>('#last-updated')!;
+  const editLink = document.querySelector<HTMLAnchorElement>('#edit-link')!;
+  const completeBtn = document.querySelector<HTMLButtonElement>('#complete-btn')!;
+  const content = document.querySelector<HTMLElement>('#content')!;
+
+  breadcrumb.textContent = 'graph';
+  updatedEl.textContent = '';
+  editLink.hidden = true;
+  completeBtn.hidden = true;
+  updateActiveHighlight('graph');
+  content.classList.remove('doc');
+  content.classList.add('graph-view');
+  content.innerHTML = '<p class="hint">Building graph…</p>';
+
+  try {
+    const { nodes, edges } = await buildGraphData(pat, navOrder);
+    const width = 900;
+    const height = 640;
+    layoutGraph(nodes, edges, width, height);
+    content.innerHTML = renderGraphToolbar(nodes) + renderGraphSvg(nodes, edges, width, height);
+    wireGraphFilters();
+    document.querySelector('.content-column')?.scrollTo(0, 0);
+  } catch (err) {
+    showError(err, undefined, () => void showGraphView(pat));
   }
 }
 
