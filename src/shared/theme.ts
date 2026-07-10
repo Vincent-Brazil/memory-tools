@@ -1,4 +1,4 @@
-export type ThemeId = 'retro' | 'gemini' | 'claude' | 'godzilla' | 'hackers';
+export type ThemeId = 'retro' | 'gemini' | 'claude' | 'godzilla' | 'hackers' | 'gravity' | 'space';
 const THEME_KEY = 'memory_tools_theme';
 
 const THEMES: { id: ThemeId; label: string }[] = [
@@ -7,6 +7,8 @@ const THEMES: { id: ThemeId; label: string }[] = [
   { id: 'claude', label: 'Claude' },
   { id: 'godzilla', label: 'Godzilla' },
   { id: 'hackers', label: 'Hackers' },
+  { id: 'gravity', label: 'Gravity' },
+  { id: 'space', label: 'Space' },
 ];
 const THEME_IDS = THEMES.map((t) => t.id);
 

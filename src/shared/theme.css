@@ -102,6 +102,46 @@
   --hero-gradient: linear-gradient(90deg, var(--accent-blue) 0%, var(--accent-violet) 50%, var(--accent-warm) 100%);
 }
 
+/* "Gravity" — black hole reference image: true black, amber/orange
+   accretion-disk glow, teal spacetime-grid accent. */
+:root[data-theme='gravity'] {
+  --bg: #050505;
+  --bg-raised: #0f0f10;
+  --bg-hover: #1a1a1c;
+  --fg: #f0ede6;
+  --muted: #6b6b6e;
+  --accent: #2dd4bf;
+  --accent-soft: rgba(45, 212, 191, 0.14);
+  --accent-warm: #ffcf5c;
+  --accent-pink: #ff5a1a;
+  --accent-violet: #ff8c1a;
+  --accent-blue: #2dd4bf;
+  --border: rgba(45, 212, 191, 0.16);
+  --error: #ff5a5a;
+  --success: #2dd4bf;
+  --hero-gradient: linear-gradient(90deg, #ffcf5c 0%, #ff8c1a 50%, #ff3d1a 100%);
+}
+
+/* "Space" — deep-space nebula: near-black navy, starlight text,
+   cyan-purple-pink nebula sweep. */
+:root[data-theme='space'] {
+  --bg: #06070f;
+  --bg-raised: #0d0f1f;
+  --bg-hover: #171a33;
+  --fg: #e8ecff;
+  --muted: #6b7099;
+  --accent: #7dd3fc;
+  --accent-soft: rgba(125, 211, 252, 0.14);
+  --accent-warm: #f472b6;
+  --accent-pink: #c084fc;
+  --accent-violet: #818cf8;
+  --accent-blue: #7dd3fc;
+  --border: rgba(125, 211, 252, 0.16);
+  --error: #ff6b6b;
+  --success: #4ade80;
+  --hero-gradient: linear-gradient(90deg, var(--accent-blue) 0%, var(--accent-violet) 50%, var(--accent-pink) 100%);
+}
+
 body {
   background: var(--bg);
   font-family: var(--mono);
