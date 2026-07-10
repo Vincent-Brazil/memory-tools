@@ -33,14 +33,14 @@
 }
 
 .sidebar-title {
-  color: var(--muted);
-  font-size: 0.85rem;
-  font-weight: 600;
-}
-
-.sidebar-title::before {
-  content: '> ';
-  color: var(--accent);
+  font-family: var(--pixel);
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  background: var(--hero-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 .sidebar-search {

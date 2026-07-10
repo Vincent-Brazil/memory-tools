@@ -285,7 +285,7 @@ function shell(): string {
       </div>
       <aside id="sidebar" class="sidebar">
         <div class="sidebar-header">
-          <span class="sidebar-title">memory</span>
+          <span class="sidebar-title">&gt; memory</span>
           ${renderSettingsWidget()}
         </div>
         <input id="filter-input" class="sidebar-search" type="search" placeholder="Search…" autocomplete="off" />
