@@ -853,12 +853,10 @@ function renderGraphSvg(nodes: GraphNode[], edges: GraphEdge[], width: number, h
     .map((n) => {
       const color = n.label ? GRAPH_LABEL_COLORS[n.label] : 'var(--border)';
       const flagged = n.issues.length > 0;
-      const name = n.path.replace(/\.md$/, '').split('/').pop();
       const tooltip = [n.path, ...n.issues].join(' — ');
       return `
         <a href="#/${encodeURIComponent(n.path)}" class="graph-node${flagged ? ' flagged' : ''}" data-label="${n.label ?? 'none'}">
           <circle cx="${n.x.toFixed(1)}" cy="${n.y.toFixed(1)}" r="${flagged ? 7 : 5}" fill="${color}" />
-          ${flagged ? `<text x="${n.x.toFixed(1)}" y="${(n.y - 10).toFixed(1)}" class="graph-node-label">${name}</text>` : ''}
           <title>${tooltip}</title>
         </a>
       `;

@@ -681,14 +681,6 @@
   opacity: 0.15;
 }
 
-.graph-node-label {
-  fill: var(--muted);
-  font-family: var(--mono);
-  font-size: 9px;
-  text-anchor: middle;
-  pointer-events: none;
-}
-
 /* Mobile */
 
 @media (max-width: 860px) {
