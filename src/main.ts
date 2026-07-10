@@ -22,6 +22,7 @@ interface RecentCapture {
   type: CaptureType;
   snippet: string;
   capturedAt: string;
+  path: string;
 }
 
 function saveDraft(draft: Draft) {
@@ -66,10 +67,12 @@ function renderRecentList(): string {
   const items = loadRecent();
   if (!items.length) return '';
   return items
-    .map(
-      (item) =>
-        `<li><span class="recent-type">${item.type}</span><span class="recent-snippet">${escapeHtml(item.snippet)}</span></li>`
-    )
+    .map((item) => {
+      const label = `<span class="recent-type">${item.type}</span><span class="recent-snippet">${escapeHtml(item.snippet)}</span>`;
+      return item.path
+        ? `<li><a class="recent-link" href="view/#/${encodeURIComponent(item.path)}">${label}</a></li>`
+        : `<li>${label}</li>`;
+    })
     .join('');
 }
 
@@ -104,10 +107,10 @@ function captureView() {
         <button type="submit" id="submit-btn"><span id="submit-label">Capture</span> <span class="btn-arrow">&#8629;</span></button>
       </form>
       <p id="status" class="status" hidden></p>
-      <div id="recent-wrap" class="recent-wrap">
-        <p class="recent-title">recent</p>
+      <details id="recent-wrap" class="recent-wrap">
+        <summary class="recent-title">recent</summary>
         <ul id="recent-list" class="recent-list">${renderRecentList()}</ul>
-      </div>
+      </details>
     </main>
     <footer class="status-bar">
       <span class="status-path">~/memory/inbox</span>
@@ -179,11 +182,11 @@ function wireEvents(pat: string) {
     statusEl.hidden = true;
 
     try {
-      await createInboxEntry(pat, text, type);
+      const path = await createInboxEntry(pat, text, type);
       statusEl.textContent = 'Captured.';
       statusEl.className = 'status success';
       statusEl.hidden = false;
-      pushRecent({ type, snippet: text.length > 80 ? `${text.slice(0, 80)}…` : text, capturedAt: new Date().toISOString() });
+      pushRecent({ type, snippet: text.length > 80 ? `${text.slice(0, 80)}…` : text, capturedAt: new Date().toISOString(), path });
       document.querySelector('#recent-list')!.innerHTML = renderRecentList();
       form.reset();
       document.querySelector<HTMLInputElement>('input[name="type"][value="idea"]')!.checked = true;

@@ -466,7 +466,11 @@ async function runContentSearch(pat: string, term: string) {
 }
 
 function updateActiveHighlight(path: string) {
-  document.querySelectorAll<HTMLAnchorElement>('.tree-item').forEach((el) => {
+  // Scoped to the real tree, not #recent-pages: while browsing within a
+  // folder, "where am I" is the tree's job (it opens the containing
+  // folder) — recent is for jumping back to something else, so the
+  // current file shouldn't also light up there.
+  document.querySelectorAll<HTMLAnchorElement>('#tree .tree-item').forEach((el) => {
     const isActive = el.getAttribute('data-path') === path;
     el.classList.toggle('active', isActive);
     if (isActive) {
@@ -477,7 +481,7 @@ function updateActiveHighlight(path: string) {
       }
     }
   });
-  document.querySelector<HTMLElement>(`.tree-item[data-path="${CSS.escape(path)}"]`)?.scrollIntoView({ block: 'nearest' });
+  document.querySelector<HTMLElement>(`#tree .tree-item[data-path="${CSS.escape(path)}"]`)?.scrollIntoView({ block: 'nearest' });
 }
 
 function styleLabelBadges(container: HTMLElement) {
@@ -557,6 +561,24 @@ async function loadPage(pat: string, path: string) {
   }
 }
 
+const CAPTURE_RECENT_KEY = 'memory_tools_recent';
+
+function syncCaptureRecentType(path: string, newType: string) {
+  try {
+    const list = JSON.parse(localStorage.getItem(CAPTURE_RECENT_KEY) ?? '[]') as { path?: string; type?: string }[];
+    let changed = false;
+    for (const item of list) {
+      if (item.path === path) {
+        item.type = newType;
+        changed = true;
+      }
+    }
+    if (changed) localStorage.setItem(CAPTURE_RECENT_KEY, JSON.stringify(list));
+  } catch {
+    // best-effort cross-app cache sync only — never block the actual edit on this
+  }
+}
+
 async function updateType(pat: string, path: string, newType: string, raw: string, onDone: () => void) {
   const select = document.querySelector<HTMLSelectElement>('#type-select')!;
   select.disabled = true;
@@ -564,6 +586,7 @@ async function updateType(pat: string, path: string, newType: string, raw: strin
     const newRaw = raw.replace(/^type:.*$/m, `type: ${newType}`);
     await updateFileContent(pat, path, newRaw, `update: ${path} type -> ${newType}`);
     contentCache.set(path, newRaw);
+    syncCaptureRecentType(path, newType);
     onDone();
   } catch (err) {
     alert(err instanceof Error ? err.message : 'Could not update type.');

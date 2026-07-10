@@ -316,17 +316,37 @@ button[type='submit']:disabled {
 }
 
 .recent-title {
-  margin: 0 0 0.5rem;
+  margin: 0;
+  padding: 0.15rem 0;
   font-size: 0.68rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--muted);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.recent-title::-webkit-details-marker {
+  display: none;
+}
+
+.recent-title::before {
+  content: '▸';
+  display: inline-block;
+  margin-right: 0.4rem;
+  font-size: 0.62rem;
+  transition: transform 0.12s ease;
+}
+
+.recent-wrap[open] > .recent-title::before {
+  transform: rotate(90deg);
 }
 
 .recent-list {
   list-style: none;
-  margin: 0;
+  margin: 0.5rem 0 0;
   padding: 0;
   display: flex;
   flex-direction: column;
@@ -340,6 +360,19 @@ button[type='submit']:disabled {
   font-size: 0.8rem;
   color: var(--muted);
   overflow: hidden;
+}
+
+.recent-link {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  overflow: hidden;
+  text-decoration: none;
+  color: inherit;
+}
+
+.recent-link:hover .recent-snippet {
+  text-decoration: underline;
 }
 
 .recent-type {
