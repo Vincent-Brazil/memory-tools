@@ -47,7 +47,10 @@ function clearDraft() {
 
 function loadRecent(): RecentCapture[] {
   try {
-    return JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]');
+    const list = JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]') as RecentCapture[];
+    // Entries captured before `path` was tracked can't link or sync type
+    // edits — drop them rather than show a broken, un-syncable row.
+    return list.filter((item) => typeof item.path === 'string' && item.path.length > 0);
   } catch {
     return [];
   }
