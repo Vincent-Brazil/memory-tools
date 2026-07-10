@@ -93,7 +93,7 @@ function render() {
 function captureView() {
   return `
     <div class="top-controls">
-      <a href="view/" class="ctrl-btn">View memory</a>
+      <a href="view/" class="ctrl-btn"><span class="ctrl-label">memory &rarr;</span></a>
     </div>
     <main class="screen">
       <h1 class="hero-title">&gt; CAPTURE<span class="cursor">_</span></h1>

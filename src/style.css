@@ -60,6 +60,16 @@ body {
   opacity: 0.75;
 }
 
+.ctrl-btn .ctrl-label {
+  font-family: var(--pixel);
+  font-size: 0.6rem;
+  letter-spacing: 0.03em;
+  background: var(--hero-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
 /* Settings widget (theme + disconnect) — inline with the "memory"
    label on the left in both apps: next to the footer path on Capture,
    next to the sidebar title on Viewer. */

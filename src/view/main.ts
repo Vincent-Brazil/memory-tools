@@ -281,7 +281,7 @@ function shell(): string {
     <div class="viewer">
       <button id="sidebar-toggle" class="sidebar-toggle-btn" type="button" aria-label="Toggle navigation">&#9776;</button>
       <div class="top-controls">
-        <a href="../" class="ctrl-btn" aria-label="Back to Capture">&larr; Capture</a>
+        <a href="../" class="ctrl-btn" aria-label="Back to Capture"><span class="ctrl-label">&larr; capture</span></a>
       </div>
       <aside id="sidebar" class="sidebar">
         <div class="sidebar-header">
