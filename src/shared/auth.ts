@@ -8,8 +8,8 @@ export const clearPat = () => localStorage.removeItem(PAT_KEY);
 
 export function renderSetupScreen(): string {
   return `
-    <main class="screen">
-      <h1 class="setup-title">&gt; Memory Tools</h1>
+    <main class="screen setup-screen">
+      <h1 class="hero-title">&gt; MEMORY<span class="cursor">_</span></h1>
       <p class="hint">Paste your GitHub token to connect this device. It's stored only in this browser, never sent anywhere but GitHub.</p>
       <form id="setup-form">
         <textarea id="pat-input" placeholder="github_pat_..." rows="3" autocomplete="off" spellcheck="false"></textarea>

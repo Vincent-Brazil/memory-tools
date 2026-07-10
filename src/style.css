@@ -23,12 +23,6 @@ body {
   font-size: 0.9rem;
 }
 
-.setup-title {
-  font-size: 1.4rem;
-  color: var(--accent);
-  margin: 0 0 0.75rem;
-}
-
 /* Fixed top-right controls (both apps) */
 
 .top-controls {
@@ -424,6 +418,21 @@ button[type='submit']:disabled {
 }
 
 /* Setup / first-run screen */
+
+.setup-screen .hint {
+  text-align: center;
+  margin: 0 0 1.5rem;
+}
+
+#setup-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.setup-screen #error {
+  text-align: center;
+}
 
 #setup-form textarea {
   padding: 0.75rem;
