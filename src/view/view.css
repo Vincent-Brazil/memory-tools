@@ -71,17 +71,24 @@
   font-style: italic;
 }
 
+.tree-recent {
+  background: var(--bg-hover);
+  border-radius: 6px;
+  padding: 0.5rem 0.4rem;
+}
+
 .tree-recent:empty {
   display: none;
+  padding: 0;
 }
 
 .tree-section-label {
   margin: 0 0 0.15rem;
-  padding: 0 0.6rem;
-  font-size: 0.7rem;
+  padding: 0 0.2rem;
+  font-size: 0.68rem;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
   color: var(--muted);
 }
 
@@ -101,9 +108,7 @@
 .tree-root {
   display: flex;
   flex-direction: column;
-  margin-top: 0.5rem;
-  padding-top: 0.5rem;
-  border-top: 1px solid var(--border);
+  margin-top: 0.2rem;
 }
 
 .tree-item {

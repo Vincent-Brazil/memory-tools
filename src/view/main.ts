@@ -183,7 +183,9 @@ async function boot() {
       if (!slugIndex.has(base)) slugIndex.set(base, f.path);
     }
     const tree = buildTree(files.map((f) => f.path));
-    document.querySelector<HTMLElement>('#tree')!.innerHTML = renderTree(tree);
+    const treeEl = document.querySelector<HTMLElement>('#tree')!;
+    treeEl.innerHTML = renderTree(tree);
+    wireFolderAccordion(treeEl);
   } catch (err) {
     showError(err);
     return;
@@ -275,6 +277,23 @@ function applyPathFilter(term: string) {
     el.classList.remove('content-match');
   });
   updateFolderVisibility(Boolean(t));
+}
+
+function wireFolderAccordion(treeEl: HTMLElement) {
+  // 'toggle' doesn't bubble, so listen in the capture phase on the container.
+  treeEl.addEventListener(
+    'toggle',
+    (e) => {
+      const folder = e.target as HTMLDetailsElement;
+      if (!folder.classList?.contains('tree-folder') || !folder.open) return;
+      const filterTerm = document.querySelector<HTMLInputElement>('#filter-input')?.value.trim();
+      if (filterTerm) return; // search may need several folders open at once
+      treeEl.querySelectorAll<HTMLDetailsElement>('.tree-folder').forEach((other) => {
+        if (other !== folder) other.open = false;
+      });
+    },
+    true
+  );
 }
 
 function updateFolderVisibility(hasFilter: boolean) {
