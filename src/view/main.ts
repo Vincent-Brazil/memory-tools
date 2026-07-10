@@ -47,6 +47,10 @@ type GraphLabel = 'active' | 'dormant' | 'reference';
 interface GraphNode {
   path: string;
   label: GraphLabel | null;
+  // Inbox items never carry an [active]/[dormant]/[reference] label — their
+  // idea/task/link type is a separate axis, worth its own color since it's
+  // otherwise invisible on the graph.
+  type: string | null;
   issues: string[];
   suggestions: string[];
   x: number;
@@ -762,6 +766,19 @@ function scoreOverlap(a: Set<string>, b: Set<string>, docFreq: Map<string, numbe
   return { score: shared.reduce((sum, s) => sum + s.weight, 0), shared: shared.slice(0, 4).map((s) => s.term) };
 }
 
+// The searchable "name" for a plain-text mention check — for most files
+// that's just the basename, but every skill file is literally named
+// SKILL.md, so the meaningful name is its folder instead.
+function searchableName(path: string): string {
+  const skillMatch = path.match(/^\.claude\/skills\/([^/]+)\//);
+  if (skillMatch) return skillMatch[1];
+  return path.split('/').pop()!.replace(/\.md$/, '');
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 async function buildGraphData(pat: string, paths: string[]): Promise<{ nodes: GraphNode[]; edges: GraphEdge[] }> {
   const knownPaths = new Set(paths);
   const nodes = new Map<string, GraphNode>();
@@ -770,6 +787,7 @@ async function buildGraphData(pat: string, paths: string[]): Promise<{ nodes: Gr
   const incoming = new Map<string, number>();
   const outgoing = new Map<string, number>();
   const termsByPath = new Map<string, Set<string>>();
+  const bodyByPath = new Map<string, string>();
 
   let index = 0;
   const worker = async () => {
@@ -781,6 +799,7 @@ async function buildGraphData(pat: string, paths: string[]): Promise<{ nodes: Gr
         const { resolved, broken } = extractLinks(body, path, knownPaths);
         const issues = broken.map((b) => `broken link: ${b}`);
         termsByPath.set(path, extractTerms(body));
+        bodyByPath.set(path, body);
 
         if (path.startsWith('inbox/') && meta.captured) {
           const capturedDate = new Date(meta.captured);
@@ -790,7 +809,8 @@ async function buildGraphData(pat: string, paths: string[]): Promise<{ nodes: Gr
           }
         }
 
-        nodes.set(path, { path, label: extractLabel(body), issues, suggestions: [], x: 0, y: 0 });
+        const type = path.startsWith('inbox/') && meta.type ? meta.type : null;
+        nodes.set(path, { path, label: extractLabel(body), type, issues, suggestions: [], x: 0, y: 0 });
         outgoing.set(path, resolved.size);
         resolved.forEach((target) => {
           const key = [path, target].sort().join('|');
@@ -801,7 +821,7 @@ async function buildGraphData(pat: string, paths: string[]): Promise<{ nodes: Gr
           incoming.set(target, (incoming.get(target) ?? 0) + 1);
         });
       } catch {
-        nodes.set(path, { path, label: null, issues: ['could not load'], suggestions: [], x: 0, y: 0 });
+        nodes.set(path, { path, label: null, type: null, issues: ['could not load'], suggestions: [], x: 0, y: 0 });
       }
     }
   };
@@ -831,7 +851,13 @@ async function buildGraphData(pat: string, paths: string[]): Promise<{ nodes: Gr
       top.forEach((m) => edges.push({ source: node.path, target: m.path, inferred: true }));
       node.suggestions = top.map((m) => `${m.path} (${m.shared.join(', ')})`);
     } else if (node.path !== 'index.md') {
-      node.issues.push('orphaned (no links in or out)');
+      const name = searchableName(node.path);
+      const mentioned =
+        name.length >= 4 &&
+        Array.from(bodyByPath.entries()).some(
+          ([otherPath, body]) => otherPath !== node.path && new RegExp(`\\b${escapeRegExp(name)}\\b`, 'i').test(body)
+        );
+      if (!mentioned) node.issues.push('orphaned (no links in or out)');
     }
   });
 
@@ -920,6 +946,16 @@ const GRAPH_LABEL_COLORS: Record<GraphLabel, string> = {
   reference: 'var(--accent)',
 };
 
+// A different color family from the status labels above — type and status
+// are separate axes (a curated doc has a status; an inbox item has a type;
+// in practice a node never has both), so distinct hues keep it readable
+// which axis a given color is telling you about.
+const GRAPH_TYPE_COLORS: Record<string, string> = {
+  idea: 'var(--accent-blue)',
+  task: 'var(--accent-warm)',
+  link: 'var(--accent-pink)',
+};
+
 function renderGraphSvg(nodes: GraphNode[], edges: GraphEdge[], width: number, height: number): string {
   const byPath = new Map(nodes.map((n) => [n.path, n]));
   const edgeLines = edges
@@ -934,12 +970,13 @@ function renderGraphSvg(nodes: GraphNode[], edges: GraphEdge[], width: number, h
 
   const nodeEls = nodes
     .map((n) => {
-      const color = n.label ? GRAPH_LABEL_COLORS[n.label] : 'var(--border)';
+      const color = n.label ? GRAPH_LABEL_COLORS[n.label] : n.type ? GRAPH_TYPE_COLORS[n.type] ?? 'var(--border)' : 'var(--border)';
       const flagged = n.issues.length > 0;
       const suggestionText = n.suggestions.map((s) => `related: ${s}`);
-      const tooltip = [n.path, ...n.issues, ...suggestionText].join(' — ');
+      const tooltip = [n.path, n.type ? `type: ${n.type}` : '', ...n.issues, ...suggestionText].filter(Boolean).join(' — ');
+      const filterKey = n.label ?? n.type ?? 'none';
       return `
-        <a href="#/${encodeURIComponent(n.path)}" class="graph-node${flagged ? ' flagged' : ''}" data-label="${n.label ?? 'none'}">
+        <a href="#/${encodeURIComponent(n.path)}" class="graph-node${flagged ? ' flagged' : ''}" data-filter="${filterKey}">
           <circle cx="${n.x.toFixed(1)}" cy="${n.y.toFixed(1)}" r="${flagged ? 7 : 5}" fill="${color}" />
           <title>${tooltip}</title>
         </a>
@@ -955,11 +992,14 @@ function renderGraphSvg(nodes: GraphNode[], edges: GraphEdge[], width: number, h
 
 function renderGraphToolbar(nodes: GraphNode[]): string {
   const flagged = nodes.filter((n) => n.issues.length > 0);
-  const counts: Record<'active' | 'dormant' | 'reference' | 'none', number> = {
+  const counts: Record<'active' | 'dormant' | 'reference' | 'idea' | 'task' | 'link' | 'none', number> = {
     active: nodes.filter((n) => n.label === 'active').length,
     dormant: nodes.filter((n) => n.label === 'dormant').length,
     reference: nodes.filter((n) => n.label === 'reference').length,
-    none: nodes.filter((n) => !n.label).length,
+    idea: nodes.filter((n) => n.type === 'idea').length,
+    task: nodes.filter((n) => n.type === 'task').length,
+    link: nodes.filter((n) => n.type === 'link').length,
+    none: nodes.filter((n) => !n.label && !n.type).length,
   };
   const chip = (key: string, text: string, count: number) =>
     `<button type="button" class="graph-chip" data-filter="${key}" aria-pressed="true">${text} <span class="graph-chip-count">${count}</span></button>`;
@@ -999,6 +1039,9 @@ function renderGraphToolbar(nodes: GraphNode[]): string {
         ${chip('active', 'active', counts.active)}
         ${chip('dormant', 'dormant', counts.dormant)}
         ${chip('reference', 'reference', counts.reference)}
+        ${chip('idea', 'idea', counts.idea)}
+        ${chip('task', 'task', counts.task)}
+        ${chip('link', 'link', counts.link)}
         ${chip('none', 'unlabeled', counts.none)}
       </div>
       ${issuesPanel}
@@ -1012,8 +1055,8 @@ function applyGraphFilter() {
     Array.from(document.querySelectorAll<HTMLButtonElement>('.graph-chip[aria-pressed="true"]')).map((c) => c.dataset.filter)
   );
   document.querySelectorAll<SVGAElement>('.graph-node').forEach((node) => {
-    const label = node.getAttribute('data-label') || 'none';
-    node.classList.toggle('dimmed', !activeFilters.has(label));
+    const key = node.getAttribute('data-filter') || 'none';
+    node.classList.toggle('dimmed', !activeFilters.has(key));
   });
 }
 
