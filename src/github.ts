@@ -153,3 +153,29 @@ export async function deleteInboxFile(pat: string, path: string): Promise<void> 
     throw new Error(body.message || `GitHub API error ${delRes.status}`);
   }
 }
+
+export async function updateFileContent(pat: string, path: string, content: string, message: string): Promise<void> {
+  const getRes = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/contents/${encodeURIComponent(path)}?ref=${BRANCH}`, {
+    headers: authHeaders(pat),
+  });
+  if (!getRes.ok) throw new Error(`Could not look up file before updating it (${getRes.status})`);
+  const { sha } = (await getRes.json()) as { sha: string };
+
+  const putRes = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/contents/${encodeURIComponent(path)}`, {
+    method: 'PUT',
+    headers: { ...authHeaders(pat), 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message,
+      content: toBase64Utf8(content),
+      sha,
+      branch: BRANCH,
+    }),
+  });
+  if (!putRes.ok) {
+    if (putRes.status === 401 || putRes.status === 403) {
+      throw new Error('Token rejected — check it still has write access to the memory repo.');
+    }
+    const body = (await putRes.json().catch(() => ({}))) as { message?: string };
+    throw new Error(body.message || `GitHub API error ${putRes.status}`);
+  }
+}

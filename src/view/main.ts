@@ -8,6 +8,7 @@ import {
   fetchLastCommitDate,
   githubEditUrl,
   deleteInboxFile,
+  updateFileContent,
   type MarkdownFile,
 } from '../github';
 import { getPat, clearPat, renderSetupScreen, wireSetupForm } from '../shared/auth';
@@ -33,6 +34,9 @@ interface TreeNode {
 let slugIndex = new Map<string, string>();
 const contentCache = new Map<string, string>();
 let searchGeneration = 0;
+let navOrder: string[] = [];
+const INBOX_TYPES = ['idea', 'task', 'link'];
+const SWIPE_THRESHOLD = 60;
 
 function currentPath(): string {
   const hash = decodeURIComponent(location.hash.replace(/^#\/?/, ''));
@@ -66,6 +70,74 @@ async function getFileContent(pat: string, path: string): Promise<string> {
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function formatDateTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function parseFrontmatter(raw: string): { meta: Record<string, string>; body: string } {
+  if (!raw.startsWith('---\n') && !raw.startsWith('---\r\n')) return { meta: {}, body: raw };
+  const end = raw.indexOf('\n---', 4);
+  if (end === -1) return { meta: {}, body: raw };
+  const block = raw.slice(4, end);
+  const bodyStart = raw.indexOf('\n', end + 1);
+  const body = bodyStart === -1 ? '' : raw.slice(bodyStart + 1);
+  const meta: Record<string, string> = {};
+  block.split('\n').forEach((line) => {
+    const m = line.match(/^([a-zA-Z0-9_-]+):\s*(.*)$/);
+    if (m) meta[m[1]] = m[2].trim();
+  });
+  return { meta, body };
+}
+
+function renderMetaBar(meta: Record<string, string>, path: string): string {
+  if (!Object.keys(meta).length) return '';
+  const isInbox = path.startsWith('inbox/');
+  const fields: string[] = [];
+
+  if (meta.type) {
+    fields.push(
+      isInbox
+        ? `<label class="meta-field">type <select id="type-select" class="type-select">${INBOX_TYPES.map(
+            (t) => `<option value="${t}"${t === meta.type ? ' selected' : ''}>${t}</option>`
+          ).join('')}</select></label>`
+        : `<span class="meta-field">type <span class="meta-value">${meta.type}</span></span>`
+    );
+  }
+  if (meta.captured) {
+    fields.push(`<span class="meta-field">captured <span class="meta-value">${formatDateTime(meta.captured)}</span></span>`);
+  }
+  if (meta.source) {
+    fields.push(`<span class="meta-field">source <span class="meta-value">${meta.source}</span></span>`);
+  }
+  return fields.length ? `<div class="meta-bar">${fields.join('')}</div>` : '';
+}
+
+function flattenNavOrder(root: TreeNode): string[] {
+  const order: string[] = [];
+  const indexNode = root.children.find((c) => c.isFile && c.path === 'index.md');
+  if (indexNode) order.push(indexNode.path);
+
+  const visitFolder = (node: TreeNode) => {
+    const subfolders = node.children.filter((c) => !c.isFile).sort((a, b) => a.name.localeCompare(b.name));
+    const files = node.children.filter((c) => c.isFile).sort((a, b) => a.name.localeCompare(b.name));
+    subfolders.forEach(visitFolder);
+    files.forEach((f) => order.push(f.path));
+  };
+  root.children
+    .filter((c) => !c.isFile)
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .forEach(visitFolder);
+
+  root.children
+    .filter((c) => c.isFile && c.path !== 'index.md')
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .forEach((f) => order.push(f.path));
+
+  return order;
 }
 
 function loadRecentPages(): string[] {
@@ -186,11 +258,13 @@ async function boot() {
     const treeEl = document.querySelector<HTMLElement>('#tree')!;
     treeEl.innerHTML = renderTree(tree);
     wireFolderAccordion(treeEl);
+    navOrder = flattenNavOrder(tree);
   } catch (err) {
     showError(err);
     return;
   }
 
+  wireSwipeNav();
   await loadPage(pat, currentPath());
   window.addEventListener('hashchange', () => loadPage(pat, currentPath()));
 }
@@ -226,6 +300,45 @@ function shell(): string {
       </div>
     </div>
   `;
+}
+
+function navigateRelative(delta: number) {
+  const idx = navOrder.indexOf(currentPath());
+  if (idx === -1) return;
+  const next = idx + delta;
+  if (next < 0 || next >= navOrder.length) return;
+  location.hash = `#/${encodeURIComponent(navOrder[next])}`;
+}
+
+function wireSwipeNav() {
+  const content = document.querySelector<HTMLElement>('.content-column')!;
+  let startX = 0;
+  let startY = 0;
+  let tracking = false;
+
+  content.addEventListener(
+    'touchstart',
+    (e) => {
+      if (e.touches.length !== 1) return;
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      tracking = true;
+    },
+    { passive: true }
+  );
+
+  content.addEventListener(
+    'touchend',
+    (e) => {
+      if (!tracking) return;
+      tracking = false;
+      const dx = e.changedTouches[0].clientX - startX;
+      const dy = e.changedTouches[0].clientY - startY;
+      if (Math.abs(dx) < SWIPE_THRESHOLD || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+      navigateRelative(dx < 0 ? -1 : 1);
+    },
+    { passive: true }
+  );
 }
 
 function wireShell(pat: string) {
@@ -411,8 +524,9 @@ async function loadPage(pat: string, path: string) {
 
   try {
     const raw = await getFileContent(pat, path);
-    const withWikilinks = raw.replace(/\[\[([a-zA-Z0-9\-_]+)\]\]/g, '[$1](wikilink:$1)');
-    content.innerHTML = await marked.parse(withWikilinks);
+    const { meta, body } = parseFrontmatter(raw);
+    const withWikilinks = body.replace(/\[\[([a-zA-Z0-9\-_]+)\]\]/g, '[$1](wikilink:$1)');
+    content.innerHTML = renderMetaBar(meta, path) + (await marked.parse(withWikilinks));
     rewriteLinks(content, dirOf(path));
     styleLabelBadges(content);
     pushRecentPage(path);
@@ -420,12 +534,35 @@ async function loadPage(pat: string, path: string) {
     document.querySelector('.content-column')?.scrollTo(0, 0);
     window.scrollTo(0, 0);
 
-    fetchLastCommitDate(pat, path).then((iso) => {
-      if (iso && currentPath() === path) updatedEl.textContent = `updated ${formatDate(iso)}`;
+    const refreshUpdated = () => {
+      fetchLastCommitDate(pat, path).then((iso) => {
+        if (iso && currentPath() === path) updatedEl.textContent = `updated ${formatDate(iso)}`;
+      });
+    };
+    refreshUpdated();
+
+    const typeSelect = document.querySelector<HTMLSelectElement>('#type-select');
+    typeSelect?.addEventListener('change', () => {
+      void updateType(pat, path, typeSelect.value, raw, refreshUpdated);
     });
   } catch (err) {
     updateActiveHighlight(path);
     showError(err, path);
+  }
+}
+
+async function updateType(pat: string, path: string, newType: string, raw: string, onDone: () => void) {
+  const select = document.querySelector<HTMLSelectElement>('#type-select')!;
+  select.disabled = true;
+  try {
+    const newRaw = raw.replace(/^type:.*$/m, `type: ${newType}`);
+    await updateFileContent(pat, path, newRaw, `update: ${path} type -> ${newType}`);
+    contentCache.set(path, newRaw);
+    onDone();
+  } catch (err) {
+    alert(err instanceof Error ? err.message : 'Could not update type.');
+  } finally {
+    select.disabled = false;
   }
 }
 
