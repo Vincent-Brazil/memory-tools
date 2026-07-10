@@ -35,6 +35,7 @@ let slugIndex = new Map<string, string>();
 const contentCache = new Map<string, string>();
 let searchGeneration = 0;
 let navOrder: string[] = [];
+let pendingEnterAnim: 'enter-next' | 'enter-prev' | null = null;
 const INBOX_TYPES = ['idea', 'task', 'link'];
 const SWIPE_THRESHOLD = 60;
 
@@ -312,7 +313,31 @@ function navigateRelative(delta: number) {
   if (idx === -1) return;
   const next = idx + delta;
   if (next < 0 || next >= navOrder.length) return;
+  pendingEnterAnim = delta > 0 ? 'enter-next' : 'enter-prev';
   location.hash = `#/${encodeURIComponent(navOrder[next])}`;
+}
+
+function playPageEnterAnimation(content: HTMLElement) {
+  if (!pendingEnterAnim) return;
+  const cls = pendingEnterAnim;
+  pendingEnterAnim = null;
+  content.classList.remove('enter-next', 'enter-prev');
+  void content.offsetWidth; // force reflow so the animation restarts even if the same class is reused
+  content.classList.add(cls);
+}
+
+function prefetchNeighbors(pat: string, path: string) {
+  const idx = navOrder.indexOf(path);
+  if (idx === -1) return;
+  const neighbors = [navOrder[idx - 1], navOrder[idx + 1]].filter(
+    (p): p is string => Boolean(p) && !contentCache.has(p)
+  );
+  if (!neighbors.length) return;
+  const run = () => neighbors.forEach((p) => void getFileContent(pat, p).catch(() => {}));
+  const ric = (window as typeof window & { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => void })
+    .requestIdleCallback;
+  if (ric) ric(run, { timeout: 2000 });
+  else setTimeout(run, 300);
 }
 
 function wireSwipeNav() {
@@ -533,7 +558,7 @@ async function loadPage(pat: string, path: string) {
   content.innerHTML = '<p class="hint">Loading…</p>';
 
   try {
-    const raw = await getFileContent(pat, path);
+    const raw = await withRetry(() => getFileContent(pat, path));
     const { meta, body } = parseFrontmatter(raw);
     const withWikilinks = body.replace(/\[\[([a-zA-Z0-9\-_]+)\]\]/g, '[$1](wikilink:$1)');
     content.innerHTML = renderMetaBar(meta, path) + (await marked.parse(withWikilinks));
@@ -543,6 +568,8 @@ async function loadPage(pat: string, path: string) {
     updateActiveHighlight(path);
     document.querySelector('.content-column')?.scrollTo(0, 0);
     window.scrollTo(0, 0);
+    playPageEnterAnimation(content);
+    prefetchNeighbors(pat, path);
 
     const refreshUpdated = () => {
       fetchLastCommitDate(pat, path).then((iso) => {
@@ -556,8 +583,9 @@ async function loadPage(pat: string, path: string) {
       void updateType(pat, path, typeSelect.value, raw, refreshUpdated);
     });
   } catch (err) {
+    pendingEnterAnim = null;
     updateActiveHighlight(path);
-    showError(err, path);
+    showError(err, path, () => loadPage(pat, path));
   }
 }
 
@@ -622,13 +650,30 @@ function rewriteLinks(container: HTMLElement, baseDir: string) {
   });
 }
 
-function showError(err: unknown, path?: string) {
+function showError(err: unknown, path?: string, onRetry?: () => void) {
   const content = document.querySelector<HTMLElement>('#content');
   const message = err instanceof Error ? err.message : 'Something went wrong.';
-  if (content) {
-    content.innerHTML = `<p class="error">${message}</p>${
-      path && path !== 'index.md' ? '<p><a href="#/index.md">&larr; Back to index</a></p>' : ''
-    }`;
+  if (!content) return;
+  content.innerHTML = `
+    <p class="error">${message}</p>
+    <p class="error-actions">
+      ${onRetry ? '<button id="retry-btn" type="button" class="retry-btn">retry</button>' : ''}
+      ${path && path !== 'index.md' ? '<a href="#/index.md">&larr; back to index</a>' : ''}
+    </p>
+  `;
+  if (onRetry) document.querySelector<HTMLButtonElement>('#retry-btn')!.addEventListener('click', onRetry);
+}
+
+// One silent retry for likely-transient failures (network blips, 5xx) before
+// giving up — auth/not-found errors aren't transient, so skip the delay for those.
+async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : '';
+    if (/token rejected|not found in memory/i.test(message)) throw err;
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    return fn();
   }
 }
 
