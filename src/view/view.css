@@ -71,25 +71,23 @@
   font-style: italic;
 }
 
+/* "Recent" drawer — a .tree-folder so it shares the accordion/chevron
+   behaviour, plus its own shaded box so it still reads as distinct
+   from the real file tree. Collapsed by default (no `open` attr). */
 .tree-recent {
   background: var(--bg-hover);
   border-radius: 6px;
-  padding: 0.5rem 0.4rem;
+  margin-bottom: 0.4rem;
 }
 
-.tree-recent:empty {
-  display: none;
-  padding: 0;
+.tree-recent summary {
+  padding: 0.4rem 0.6rem;
 }
 
-.tree-section-label {
-  margin: 0 0 0.15rem;
-  padding: 0 0.2rem;
-  font-size: 0.68rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--muted);
+.tree-recent .tree-folder-content {
+  padding: 0 0.4rem 0.4rem;
+  margin-left: 0;
+  border-left: none;
 }
 
 .tree-recent .tree-item {

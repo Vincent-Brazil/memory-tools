@@ -171,9 +171,14 @@ function renderRecentPagesSection() {
   if (!el) return;
   const paths = loadRecentPages();
   el.innerHTML = paths.length
-    ? `<p class="tree-section-label">recent</p>${paths
-        .map((p) => `<a class="tree-item" href="#/${encodeURIComponent(p)}" data-path="${p}">${p.replace(/\.md$/, '')}</a>`)
-        .join('')}`
+    ? `<details class="tree-folder tree-recent">
+        <summary>recent</summary>
+        <div class="tree-folder-content">
+          ${paths
+            .map((p) => `<a class="tree-item" href="#/${encodeURIComponent(p)}" data-path="${p}" title="${p}">${p.replace(/\.md$/, '')}</a>`)
+            .join('')}
+        </div>
+      </details>`
     : '';
 }
 
@@ -257,7 +262,7 @@ async function boot() {
     const tree = buildTree(files.map((f) => f.path));
     const treeEl = document.querySelector<HTMLElement>('#tree')!;
     treeEl.innerHTML = renderTree(tree);
-    wireFolderAccordion(treeEl);
+    wireFolderAccordion(document.querySelector<HTMLElement>('#sidebar')!);
     navOrder = flattenNavOrder(tree);
   } catch (err) {
     showError(err);
@@ -283,7 +288,7 @@ function shell(): string {
         </div>
         <input id="filter-input" class="sidebar-search" type="search" placeholder="Search…" autocomplete="off" />
         <p id="search-status" class="search-status" hidden></p>
-        <div id="recent-pages" class="tree-recent"></div>
+        <div id="recent-pages"></div>
         <nav id="tree" class="tree"><p class="hint">Loading…</p></nav>
       </aside>
       <div id="sidebar-backdrop" class="sidebar-backdrop" hidden></div>
@@ -392,16 +397,17 @@ function applyPathFilter(term: string) {
   updateFolderVisibility(Boolean(t));
 }
 
-function wireFolderAccordion(treeEl: HTMLElement) {
+function wireFolderAccordion(container: HTMLElement) {
   // 'toggle' doesn't bubble, so listen in the capture phase on the container.
-  treeEl.addEventListener(
+  // Covers the whole sidebar (real folders + the "recent" drawer), not just #tree.
+  container.addEventListener(
     'toggle',
     (e) => {
       const folder = e.target as HTMLDetailsElement;
       if (!folder.classList?.contains('tree-folder') || !folder.open) return;
       const filterTerm = document.querySelector<HTMLInputElement>('#filter-input')?.value.trim();
       if (filterTerm) return; // search may need several folders open at once
-      treeEl.querySelectorAll<HTMLDetailsElement>('.tree-folder').forEach((other) => {
+      container.querySelectorAll<HTMLDetailsElement>('.tree-folder').forEach((other) => {
         if (other !== folder) other.open = false;
       });
     },
