@@ -687,6 +687,55 @@
   margin: 0;
 }
 
+.graph-explainer {
+  flex-basis: 100%;
+}
+
+.graph-explainer summary {
+  font-size: 0.75rem;
+  color: var(--muted);
+  cursor: pointer;
+  list-style: none;
+}
+
+.graph-explainer summary::-webkit-details-marker {
+  display: none;
+}
+
+.graph-explainer summary::before {
+  content: '▸';
+  display: inline-block;
+  margin-right: 0.4rem;
+  font-size: 0.7rem;
+  transition: transform 0.12s ease;
+}
+
+.graph-explainer[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.graph-explainer-body {
+  margin-top: 0.6rem;
+  padding: 0.6rem 0.75rem;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.78rem;
+  color: var(--fg);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.graph-explainer-body strong {
+  color: var(--accent);
+}
+
+.graph-explainer-body p {
+  margin: 0;
+  line-height: 1.5;
+}
+
 .graph-suggestions {
   flex-basis: 100%;
   background: var(--accent-soft);

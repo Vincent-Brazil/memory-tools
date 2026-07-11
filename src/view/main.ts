@@ -961,22 +961,35 @@ async function buildGraphData(pat: string, paths: string[]): Promise<{ nodes: Gr
     }
   });
 
-  return { nodes: [...nodes.values()], edges };
+  // Concurrent fetches finish in whatever order the network gives them, so
+  // without this the node (and issue/suggestion list) order would vary
+  // between visits even though the layout itself is now seeded.
+  return { nodes: [...nodes.values()].sort((a, b) => a.path.localeCompare(b.path)), edges };
 }
 
 // A minimal force-directed layout (repulsion + spring edges + mild
 // centering), settled synchronously over a fixed number of iterations —
 // no need for a physics library or continuous animation for a graph this
 // size, and a static settle-then-render is simpler than a live simulation.
+// Deterministic — a node's path always hashes to the same value, so the
+// same graph settles into the same layout every visit instead of jumping
+// around each time you open it.
+function hashSeed(s: string, salt: number): number {
+  let h = salt;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return (h >>> 0) / 4294967295;
+}
+
 function layoutGraph(nodes: GraphNode[], edges: GraphEdge[], width: number, height: number) {
   const byPath = new Map(nodes.map((n) => [n.path, n]));
   const cx = width / 2;
   const cy = height / 2;
   const radius = Math.min(width, height) / 2.4;
-  nodes.forEach((n, i) => {
-    const angle = (i / nodes.length) * Math.PI * 2;
-    n.x = cx + Math.cos(angle) * radius * (0.4 + Math.random() * 0.6);
-    n.y = cy + Math.sin(angle) * radius * (0.4 + Math.random() * 0.6);
+  nodes.forEach((n) => {
+    const angle = hashSeed(n.path, 1) * Math.PI * 2;
+    const jitter = 0.4 + hashSeed(n.path, 2) * 0.6;
+    n.x = cx + Math.cos(angle) * radius * jitter;
+    n.y = cy + Math.sin(angle) * radius * jitter;
   });
 
   const REPULSION = 2600;
@@ -999,7 +1012,10 @@ function layoutGraph(nodes: GraphNode[], edges: GraphEdge[], width: number, heig
         const b = nodes[j];
         let dx = a.x - b.x;
         let dy = a.y - b.y;
-        const distSq = dx * dx + dy * dy || 0.01;
+        // Floored well above zero — two nodes landing near-coincident (easy
+        // with hash-seeded starting positions) would otherwise spike the
+        // force enormously and blow the whole simulation up.
+        const distSq = Math.max(dx * dx + dy * dy, 25);
         const dist = Math.sqrt(distSq);
         const force = REPULSION / distSq;
         dx /= dist;
@@ -1031,11 +1047,23 @@ function layoutGraph(nodes: GraphNode[], edges: GraphEdge[], width: number, heig
       fy.set(b.path, fy.get(b.path)! - dy * displacement);
     });
 
+    // Caps how far any node can move in a single iteration, regardless of
+    // how large the computed force was — the actual fix for the blowup
+    // (the distSq floor above reduces how often a spike happens, this
+    // guarantees one can never cascade into a runaway explosion).
+    const MAX_STEP = 40;
     nodes.forEach((n) => {
       const fxv = fx.get(n.path)! + (cx - n.x) * CENTER_PULL;
       const fyv = fy.get(n.path)! + (cy - n.y) * CENTER_PULL;
-      n.x += fxv * STEP;
-      n.y += fyv * STEP;
+      let dx = fxv * STEP;
+      let dy = fyv * STEP;
+      const mag = Math.sqrt(dx * dx + dy * dy);
+      if (mag > MAX_STEP) {
+        dx = (dx / mag) * MAX_STEP;
+        dy = (dy / mag) * MAX_STEP;
+      }
+      n.x += dx;
+      n.y += dy;
     });
   }
 }
@@ -1117,6 +1145,19 @@ function renderGraphToolbar(nodes: GraphNode[]): string {
   const chip = (key: string, text: string, count: number) =>
     `<button type="button" class="graph-chip" data-filter="${key}" aria-pressed="true">${text} <span class="graph-chip-count">${count}</span></button>`;
 
+  const explainer = `
+    <details class="graph-explainer">
+      <summary>how this works</summary>
+      <div class="graph-explainer-body">
+        <p><strong>Color</strong> — status (active/dormant/reference) for curated docs, capture type (idea/task/link) for inbox items. Switch to folder coloring with the dropdown.</p>
+        <p><strong>Solid line</strong> — an explicit [[wikilink]] or markdown link between two files.</p>
+        <p><strong>Dashed line</strong> — an inferred relation: an inbox item scored against existing content by shared significant words, not an explicit link. A lead, not a fact.</p>
+        <p><strong>Red ring</strong> — a data quality issue: a broken link, a curated doc with no connections at all, or an inbox item unprocessed more than 14 days.</p>
+        <p>Recomputed every time you open this view, from whatever's already been fetched this session (including your own edits). A full page reload picks up anything changed outside this session.</p>
+      </div>
+    </details>
+  `;
+
   const issuesPanel = flagged.length
     ? `<details class="graph-issues">
         <summary>${flagged.length} data quality issue${flagged.length === 1 ? '' : 's'}</summary>
@@ -1164,6 +1205,7 @@ function renderGraphToolbar(nodes: GraphNode[]): string {
           </select>
         </label>
       </div>
+      ${explainer}
       ${issuesPanel}
       ${suggestionsPanel}
     </div>
