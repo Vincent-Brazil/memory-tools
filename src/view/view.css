@@ -522,6 +522,40 @@
   margin: 2rem 0;
 }
 
+.backlinks {
+  margin-top: 2.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border);
+}
+
+.backlinks-title {
+  margin: 0 0 0.75rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.backlinks-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.backlinks-list a {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 0.88rem;
+}
+
+.backlinks-list a:hover {
+  text-decoration: underline;
+}
+
 .label-badge {
   display: inline-block;
   padding: 0.15rem 0.6rem;
@@ -735,6 +769,31 @@
 
 .graph-node.dimmed {
   opacity: 0.15;
+}
+
+.graph-node.hover-dim,
+.graph-edge.hover-dim {
+  opacity: 0.1;
+}
+
+.graph-color-mode-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.graph-color-mode {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  padding: 0.25rem 0.5rem;
+  cursor: pointer;
 }
 
 /* Triage view */

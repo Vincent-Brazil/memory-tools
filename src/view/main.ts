@@ -325,6 +325,12 @@ async function boot() {
     return;
   }
 
+  const ric = (window as typeof window & { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => void })
+    .requestIdleCallback;
+  const kickOffBacklinks = () => void ensureBacklinksIndex(pat);
+  if (ric) ric(kickOffBacklinks, { timeout: 4000 });
+  else setTimeout(kickOffBacklinks, 800);
+
   wireSwipeNav();
   wireKeyboardNav();
   await route(pat);
@@ -394,6 +400,79 @@ function playPageEnterAnimation(content: HTMLElement) {
   content.classList.remove('enter-next', 'enter-prev');
   void content.offsetWidth; // force reflow so the animation restarts even if the same class is reused
   content.classList.add(cls);
+}
+
+let backlinksIndexPromise: Promise<Map<string, Set<string>>> | null = null;
+
+// Built once, lazily, at idle time — every page load doing its own full-repo
+// scan would make ordinary navigation feel like the graph/triage builds.
+// Reuses the same explicit-link + plain-text-mention detection the graph's
+// orphan check uses, just inverted (who points at this page, not who does
+// this page point at).
+async function buildBacklinksIndex(pat: string, paths: string[]): Promise<Map<string, Set<string>>> {
+  const knownPaths = new Set(paths);
+  const bodyByPath = new Map<string, string>();
+
+  let index = 0;
+  const worker = async () => {
+    while (index < paths.length) {
+      const path = paths[index++];
+      try {
+        const raw = await getFileContent(pat, path);
+        bodyByPath.set(path, parseFrontmatter(raw).body);
+      } catch {
+        bodyByPath.set(path, '');
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: GRAPH_FETCH_CONCURRENCY }, worker));
+
+  const backlinks = new Map<string, Set<string>>();
+  const addRef = (target: string, source: string) => {
+    if (target === source) return;
+    if (!backlinks.has(target)) backlinks.set(target, new Set());
+    backlinks.get(target)!.add(source);
+  };
+
+  bodyByPath.forEach((body, path) => {
+    const { resolved } = extractLinks(body, path, knownPaths);
+    resolved.forEach((target) => addRef(target, path));
+  });
+
+  // Plain-text mentions too — a wikilink's slug also satisfies this regex,
+  // so this naturally re-finds explicit links as well; the Set just dedupes.
+  paths.forEach((target) => {
+    const name = searchableName(target);
+    if (name.length < 4) return;
+    const re = new RegExp(`\\b${escapeRegExp(name)}\\b`, 'i');
+    bodyByPath.forEach((body, path) => {
+      if (path !== target && re.test(body)) addRef(target, path);
+    });
+  });
+
+  return backlinks;
+}
+
+function ensureBacklinksIndex(pat: string): Promise<Map<string, Set<string>>> {
+  if (!backlinksIndexPromise) backlinksIndexPromise = buildBacklinksIndex(pat, navOrder);
+  return backlinksIndexPromise;
+}
+
+async function renderBacklinksSection(pat: string, path: string) {
+  const index = await ensureBacklinksIndex(pat);
+  if (currentPath() !== path) return; // navigated away before this resolved
+  const slot = document.querySelector<HTMLElement>('#backlinks-slot');
+  if (!slot) return;
+  const refs = Array.from(index.get(path) ?? []).sort();
+  if (!refs.length) return;
+  slot.innerHTML = `
+    <section class="backlinks">
+      <p class="backlinks-title">Referenced by (${refs.length})</p>
+      <ul class="backlinks-list">
+        ${refs.map((p) => `<li><a href="#/${encodeURIComponent(p)}">${p}</a></li>`).join('')}
+      </ul>
+    </section>
+  `;
 }
 
 function prefetchNeighbors(pat: string, path: string) {
@@ -642,7 +721,7 @@ async function loadPage(pat: string, path: string) {
   completeBtn.hidden = !path.startsWith('inbox/');
   completeBtn.disabled = false;
   completeBtn.textContent = '✓ complete';
-  content.classList.remove('graph-view');
+  content.classList.remove('graph-view', 'triage-view');
   content.classList.add('doc');
   content.innerHTML = '<p class="hint">Loading…</p>';
 
@@ -650,7 +729,7 @@ async function loadPage(pat: string, path: string) {
     const raw = await withRetry(() => getFileContent(pat, path));
     const { meta, body } = parseFrontmatter(raw);
     const withWikilinks = body.replace(/\[\[([a-zA-Z0-9\-_]+)\]\]/g, '[$1](wikilink:$1)');
-    content.innerHTML = renderMetaBar(meta, path) + (await marked.parse(withWikilinks));
+    content.innerHTML = renderMetaBar(meta, path) + (await marked.parse(withWikilinks)) + '<div id="backlinks-slot"></div>';
     rewriteLinks(content, dirOf(path));
     styleLabelBadges(content);
     pushRecentPage(path);
@@ -659,6 +738,7 @@ async function loadPage(pat: string, path: string) {
     window.scrollTo(0, 0);
     playPageEnterAnimation(content);
     prefetchNeighbors(pat, path);
+    void renderBacklinksSection(pat, path);
 
     const refreshUpdated = () => {
       fetchLastCommitDate(pat, path).then((iso) => {
@@ -976,28 +1056,41 @@ const GRAPH_TYPE_COLORS: Record<string, string> = {
   link: 'var(--accent-pink)',
 };
 
+// Cycled through by index, not hashed — order is whatever Array.sort gives
+// the folder list, stable for a given file set, good enough since this is
+// a "see the shape" view, not a legend anyone needs to memorize.
+const FOLDER_COLOR_PALETTE = ['var(--accent)', 'var(--accent-warm)', 'var(--accent-pink)', 'var(--accent-violet)', 'var(--accent-blue)', 'var(--success)'];
+
+function folderOf(path: string): string {
+  const parts = path.split('/');
+  return parts.length > 1 ? parts[0] : '(root)';
+}
+
 function renderGraphSvg(nodes: GraphNode[], edges: GraphEdge[], width: number, height: number): string {
   const byPath = new Map(nodes.map((n) => [n.path, n]));
+  const folderList = Array.from(new Set(nodes.map((n) => folderOf(n.path)))).sort();
+  const folderColor = (path: string) => FOLDER_COLOR_PALETTE[folderList.indexOf(folderOf(path)) % FOLDER_COLOR_PALETTE.length];
+
   const edgeLines = edges
     .map((e) => {
       const a = byPath.get(e.source);
       const b = byPath.get(e.target);
       if (!a || !b) return '';
       const cls = e.inferred ? 'graph-edge inferred' : 'graph-edge';
-      return `<line x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" class="${cls}" />`;
+      return `<line x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" class="${cls}" data-source="${e.source}" data-target="${e.target}" />`;
     })
     .join('');
 
   const nodeEls = nodes
     .map((n) => {
-      const color = n.label ? GRAPH_LABEL_COLORS[n.label] : n.type ? GRAPH_TYPE_COLORS[n.type] ?? 'var(--border)' : 'var(--border)';
+      const statusColor = n.label ? GRAPH_LABEL_COLORS[n.label] : n.type ? GRAPH_TYPE_COLORS[n.type] ?? 'var(--border)' : 'var(--border)';
       const flagged = n.issues.length > 0;
       const suggestionText = n.suggestions.map((s) => `related: ${s}`);
       const tooltip = [n.path, n.type ? `type: ${n.type}` : '', ...n.issues, ...suggestionText].filter(Boolean).join(' — ');
       const filterKey = n.label ?? n.type ?? 'none';
       return `
-        <a href="#/${encodeURIComponent(n.path)}" class="graph-node${flagged ? ' flagged' : ''}" data-filter="${filterKey}">
-          <circle cx="${n.x.toFixed(1)}" cy="${n.y.toFixed(1)}" r="${flagged ? 7 : 5}" fill="${color}" />
+        <a href="#/${encodeURIComponent(n.path)}" class="graph-node${flagged ? ' flagged' : ''}" data-filter="${filterKey}" data-path="${n.path}">
+          <circle cx="${n.x.toFixed(1)}" cy="${n.y.toFixed(1)}" r="${flagged ? 7 : 5}" fill="${statusColor}" data-color-status="${statusColor}" data-color-folder="${folderColor(n.path)}" />
           <title>${tooltip}</title>
         </a>
       `;
@@ -1063,6 +1156,13 @@ function renderGraphToolbar(nodes: GraphNode[]): string {
         ${chip('task', 'task', counts.task)}
         ${chip('link', 'link', counts.link)}
         ${chip('none', 'unlabeled', counts.none)}
+        <label class="graph-color-mode-label">
+          color:
+          <select id="graph-color-mode" class="graph-color-mode">
+            <option value="status">status / type</option>
+            <option value="folder">folder</option>
+          </select>
+        </label>
       </div>
       ${issuesPanel}
       ${suggestionsPanel}
@@ -1091,6 +1191,46 @@ function wireGraphFilters() {
   });
 }
 
+// Mouse-hover only (mirrors Obsidian's graph) — mobile still gets full
+// function via tap-to-navigate, it just doesn't get this enhancement.
+function wireGraphHover(edges: GraphEdge[]) {
+  const svg = document.querySelector<SVGSVGElement>('.graph-svg');
+  if (!svg) return;
+  const adjacency = new Map<string, Set<string>>();
+  edges.forEach((e) => {
+    if (!adjacency.has(e.source)) adjacency.set(e.source, new Set());
+    if (!adjacency.has(e.target)) adjacency.set(e.target, new Set());
+    adjacency.get(e.source)!.add(e.target);
+    adjacency.get(e.target)!.add(e.source);
+  });
+
+  const clear = () => svg.querySelectorAll('.hover-dim').forEach((el) => el.classList.remove('hover-dim'));
+
+  svg.querySelectorAll<SVGAElement>('.graph-node').forEach((el) => {
+    const path = el.dataset.path!;
+    el.addEventListener('mouseenter', () => {
+      const neighbors = adjacency.get(path) ?? new Set();
+      svg.querySelectorAll<SVGAElement>('.graph-node').forEach((other) => {
+        other.classList.toggle('hover-dim', other.dataset.path !== path && !neighbors.has(other.dataset.path!));
+      });
+      svg.querySelectorAll<SVGLineElement>('.graph-edge').forEach((line) => {
+        line.classList.toggle('hover-dim', line.dataset.source !== path && line.dataset.target !== path);
+      });
+    });
+    el.addEventListener('mouseleave', clear);
+  });
+}
+
+function wireGraphColorMode() {
+  document.querySelector<HTMLSelectElement>('#graph-color-mode')?.addEventListener('change', (e) => {
+    const mode = (e.target as HTMLSelectElement).value;
+    document.querySelectorAll<SVGCircleElement>('.graph-node circle').forEach((circle) => {
+      const value = mode === 'folder' ? circle.dataset.colorFolder : circle.dataset.colorStatus;
+      if (value) circle.setAttribute('fill', value);
+    });
+  });
+}
+
 async function showGraphView(pat: string) {
   const breadcrumb = document.querySelector<HTMLParagraphElement>('#breadcrumb')!;
   const updatedEl = document.querySelector<HTMLElement>('#last-updated')!;
@@ -1114,6 +1254,8 @@ async function showGraphView(pat: string) {
     layoutGraph(nodes, edges, width, height);
     content.innerHTML = renderGraphToolbar(nodes) + renderGraphSvg(nodes, edges, width, height);
     wireGraphFilters();
+    wireGraphHover(edges);
+    wireGraphColorMode();
     document.querySelector('.content-column')?.scrollTo(0, 0);
   } catch (err) {
     showError(err, undefined, () => void showGraphView(pat));
