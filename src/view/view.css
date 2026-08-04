@@ -953,6 +953,11 @@
   color: var(--error);
 }
 
+.triage-btn-discard,
+.triage-btn-decide[data-decision='bin'] {
+  color: var(--error);
+}
+
 .triage-section-title {
   font-size: 0.9rem;
   font-weight: 700;

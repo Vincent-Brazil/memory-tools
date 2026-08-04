@@ -1521,6 +1521,20 @@ function renderStuckItem(item: TriageItem): string {
         <span class="triage-age">attempt ${item.enrichmentAttempts}${item.enrichmentAttempts >= 3 ? ' — gave up, needs a manual look' : ''}</span>
       </div>
       ${renderOriginal(item)}
+      <button type="button" class="triage-btn triage-btn-discard" data-path="${item.path}">discard</button>
+    </li>
+  `;
+}
+
+function renderPendingItem(item: TriageItem): string {
+  return `
+    <li class="triage-item triage-item-pending" data-path="${item.path}">
+      <div class="triage-item-head">
+        ${item.type ? `<span class="triage-type triage-type-${item.type}">${item.type}</span>` : ''}
+        <a href="#/${encodeURIComponent(item.path)}" class="triage-path">${item.path}</a>
+      </div>
+      ${renderOriginal(item)}
+      <button type="button" class="triage-btn triage-btn-discard" data-path="${item.path}">discard</button>
     </li>
   `;
 }
@@ -1543,7 +1557,7 @@ function renderTriageView(items: TriageItem[]): string {
   const ready = items.filter((i) => i.status === 'enriched');
   const stuck = items.filter((i) => i.status === 'captured' && i.enrichmentAttempts > 0);
   const decided = items.filter((i) => i.status === 'decided');
-  const pending = items.filter((i) => i.status === 'captured' && i.enrichmentAttempts === 0).length;
+  const pending = items.filter((i) => i.status === 'captured' && i.enrichmentAttempts === 0);
 
   if (!items.length) return '<p class="hint">Inbox is empty — nothing to triage.</p>';
 
@@ -1565,8 +1579,10 @@ function renderTriageView(items: TriageItem[]): string {
       `<details class="triage-decided-group"><summary>recently decided (${decided.length})</summary><ul class="triage-list">${decided.map(renderDecidedItem).join('')}</ul></details>`
     );
   }
-  if (pending) {
-    sections.push(`<p class="hint">${pending} more item(s) captured but not yet processed.</p>`);
+  if (pending.length) {
+    sections.push(
+      `<h3 class="triage-section-title">not yet processed (${pending.length})</h3><p class="hint">Waiting on the inbox-review workflow — discard now if it's obviously not worth keeping.</p><ul class="triage-list">${pending.map(renderPendingItem).join('')}</ul>`
+    );
   }
   return sections.join('');
 }
@@ -1590,11 +1606,37 @@ async function applyTriageDecision(pat: string, path: string, decision: string, 
   }
 }
 
+// architecture.md's contract already says bin's eventual "done" step is
+// "remove the inbox file" — the execution half was just never built. This
+// is that: bin (and the plain "discard" buttons on stuck/pending items,
+// which have no AI recommendation to disagree with anyway) delete straight
+// away instead of leaving a decision: bin flag sitting in an inbox that
+// still looks cluttered.
+async function discardTriageItem(pat: string, path: string) {
+  if (!confirm(`Discard ${path}? This deletes it from the inbox — there's no undo from here.`)) return;
+  const item = document.querySelector<HTMLElement>(`.triage-item[data-path="${CSS.escape(path)}"]`);
+  item?.classList.add('busy');
+  try {
+    await deleteInboxFile(pat, path);
+    contentCache.delete(path);
+    await showTriageView(pat);
+  } catch (err) {
+    alert(err instanceof Error ? err.message : 'Could not discard item.');
+    item?.classList.remove('busy');
+  }
+}
+
 function wireTriageActions(pat: string) {
   document.querySelector<HTMLElement>('#content')?.addEventListener('click', (e) => {
-    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('.triage-btn-decide, .triage-btn-undo');
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('.triage-btn-decide, .triage-btn-undo, .triage-btn-discard');
     if (!btn) return;
     const path = btn.dataset.path!;
+
+    if (btn.classList.contains('triage-btn-discard') || btn.dataset.decision === 'bin') {
+      void discardTriageItem(pat, path);
+      return;
+    }
+
     const decision = btn.dataset.decision!;
     const targetInput = document.querySelector<HTMLInputElement>(`.triage-target-input[data-path="${CSS.escape(path)}"]`);
     void applyTriageDecision(pat, path, decision, targetInput?.value.trim() || undefined);
