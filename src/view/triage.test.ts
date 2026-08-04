@@ -36,6 +36,37 @@ test('raw backlog count is explicit when nothing is ready', () => {
   assert.match(html, /The other captures have not been processed yet/);
 });
 
+test('the current proposal shows queue position rather than an ambiguous ready count', () => {
+  const proposal = {
+    schema_version: 2 as const,
+    kind: 'idea' as const,
+    title: 'A shaped idea',
+    summary: 'A summary',
+    why_it_matters: '',
+    grounding: '',
+    viability: '',
+    approach: '',
+    definition_of_done: '',
+    next_step: '',
+    biggest_unknown: '',
+    clarifying_question: '',
+    executor: 'none' as const,
+    outcome: 'save_idea' as const,
+    outcome_label: 'Save idea',
+    target: '',
+    approval_effect: 'If approved, this will save the idea.',
+    evidence: [],
+    related: [],
+  };
+  const html = renderReview([
+    { ...baseItem, path: 'inbox/one.md', status: 'ready', proposal },
+    { ...baseItem, path: 'inbox/two.md', status: 'ready', proposal },
+  ]);
+
+  assert.match(html, /1 of 2 to review/);
+  assert.doesNotMatch(html, />2 ready</);
+});
+
 test('shaping metadata parses without exposing legacy terminology', () => {
   const { meta, body } = parseFrontmatter('---\nstatus: ready\nshaped_by: deepseek:deepseek-chat\n---\n\nRaw capture');
 

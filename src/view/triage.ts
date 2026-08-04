@@ -237,7 +237,7 @@ function renderReady(item: ReviewItem, remaining: number): string {
   return `<article class="review-card" data-path="${escapeHtml(item.path)}">
     <header class="review-card-header">
       <span class="review-kind review-kind-${proposal.kind}">${escapeHtml(proposal.kind)}</span>
-      <span class="review-progress">${remaining} ready</span>
+      <span class="review-progress">1 of ${remaining} to review</span>
     </header>
     <h2>${escapeHtml(proposal.title)}</h2>
     ${renderOriginal(item)}
