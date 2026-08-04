@@ -1,42 +1,66 @@
 # memory-tools
 
-Small tools that read/write [`Vincent-Brazil/memory`](https://github.com/Vincent-Brazil/memory) from
-mobile and desktop. First tool: **Capture** — a quick-idea form. A Notion-style markdown viewer is
-planned as a second app in this repo (see `memory/ideas/memory-md-viewer.md`).
+A static PWA for capturing, reviewing, and browsing
+[`Vincent-Brazil/memory`](https://github.com/Vincent-Brazil/memory). It has no backend and
+calls GitHub's Contents API directly from the browser.
 
-## Capture
+## Live app
 
-A static PWA, no backend. It writes directly to `memory`'s `inbox/` via the GitHub Contents API,
-called from the browser. Deployed to GitHub Pages on every push to `main`.
+Open [memory-tools on GitHub Pages](https://vincent-brazil.github.io/memory-tools/) in a
+browser. On first use, enter the target `owner/repo` and a fine-grained GitHub token with
+Contents read/write access to that repository. Both stay in that browser's `localStorage`.
 
-- **URL**: `https://vincent-brazil.github.io/memory-tools/`
-- **First run**: paste a GitHub token when prompted. It's stored only in that browser's `localStorage`
-  — never committed, never sent anywhere but `api.github.com`.
-- **Token**: a fine-grained PAT scoped to `Vincent-Brazil/memory`, **Contents: Read and write** only.
-  Create one at GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens.
-  One token per device; disconnect a device with the settings (gear) icon to clear it.
-- **Install**: open the URL on mobile → browser menu → Add to Home Screen. On desktop Chrome/Edge →
-  address bar install icon → Install. Same static build serves both.
-- **Entry format**: writes `inbox/YYYY-MM-DD-<slug>.md` with:
-  ```
-  ---
-  type: idea | task | link
-  captured: <ISO timestamp>
-  source: mobile-capture
-  ---
+On mobile, use the browser menu to add it to the home screen. On desktop Chrome or Edge,
+use the install icon in the address bar.
 
-  <captured text>
-  ```
-  These land unprocessed — a later review session in the memory repo promotes or bins them, per the
-  existing `inbox/` funnel convention.
+## Workflow
 
-## Local dev
+### Capture
 
+Capture is deliberately untyped. Drop in a rough thought, something to do, or a link. The
+app preserves exactly what was entered and writes:
+
+```yaml
+---
+captured: <ISO timestamp>
+source: mobile-capture
+status: captured
+---
 ```
+
+Capture-time guesses do not decide whether something is an idea, task, or bookmark.
+
+### Inbox review
+
+A bounded DeepSeek job in the Memory repository prepares raw captures into structured
+proposals. The review screen shows one proposal at a time with:
+
+- inferred kind: idea, task, bookmark, or unclear
+- a shaped description and grounding
+- viability, approach, definition of done, or next step where relevant
+- one concrete proposed outcome
+- a receipt explaining exactly what approval records
+
+Available actions are **Approve**, **Change**, **Skip for now**, and **Discard**. Change
+stores human feedback, removes the generated proposal, and queues the original capture for
+preparation again. Approval records a concrete outcome; it does not pretend a later Memory,
+Cockpit, or agent execution has already happened.
+
+Pending captures link directly to the hosted Prepare inbox workflow in GitHub Actions.
+
+### Viewer and Graph
+
+The Viewer renders the Memory Markdown tree with search, recent pages, backlinks, edit links,
+and inbox completion controls. Graph visualises explicit links, inferred raw-capture
+relationships, and data-quality issues. Graph suggestions remain context, never decisions.
+
+## Local development
+
+```text
 npm install
-npm run dev      # local dev server
-npm run build    # production build to dist/
+npm run typecheck
+npm run build
+npm run dev
 ```
 
-Icon source is `assets/icon.svg`; regenerate PNGs into `public/icons/` if it changes (192, 512, and
-a 180×180 `apple-touch-icon.png`).
+The GitHub Pages workflow type-checks and builds before deployment.

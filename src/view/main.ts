@@ -8,13 +8,13 @@ import {
   fetchLastCommitDate,
   githubEditUrl,
   deleteInboxFile,
-  updateFileContent,
   configureRepo,
   type MarkdownFile,
 } from '../github';
 import { getPat, clearPat, getRepo, clearRepo, renderSetupScreen, wireSetupForm } from '../shared/auth';
 import { getTheme, applyTheme } from '../shared/theme';
 import { renderSettingsWidget, wireSettingsWidget } from '../shared/settingsWidget';
+import { showInboxReview } from './triage';
 
 applyTheme(getTheme());
 
@@ -37,7 +37,6 @@ const contentCache = new Map<string, string>();
 let searchGeneration = 0;
 let navOrder: string[] = [];
 let pendingEnterAnim: 'enter-next' | 'enter-prev' | null = null;
-const INBOX_TYPES = ['idea', 'task', 'link'];
 const SWIPE_THRESHOLD = 60;
 const GRAPH_FETCH_CONCURRENCY = 6;
 const STALE_INBOX_DAYS = 14;
@@ -135,31 +134,14 @@ function parseFrontmatter(raw: string): { meta: Record<string, string>; body: st
   return { meta, body };
 }
 
-// Sets (or inserts, if absent) flat frontmatter fields — same convention
-// updateType already relies on (type: <value> as a single line), just
-// generalized to arbitrary keys instead of hardcoding 'type'.
-function setFrontmatterFields(raw: string, fields: Record<string, string>): string {
-  let out = raw;
-  for (const [key, value] of Object.entries(fields)) {
-    const re = new RegExp(`^${key}:.*$`, 'm');
-    out = re.test(out) ? out.replace(re, `${key}: ${value}`) : out.replace(/\n---\n/, `\n${key}: ${value}\n---\n`);
-  }
-  return out;
-}
-
 function renderMetaBar(meta: Record<string, string>, path: string): string {
   if (!Object.keys(meta).length) return '';
   const isInbox = path.startsWith('inbox/');
   const fields: string[] = [];
 
-  if (meta.type) {
-    fields.push(
-      isInbox
-        ? `<label class="meta-field">type <select id="type-select" class="type-select">${INBOX_TYPES.map(
-            (t) => `<option value="${t}"${t === meta.type ? ' selected' : ''}>${t}</option>`
-          ).join('')}</select></label>`
-        : `<span class="meta-field">type <span class="meta-value">${meta.type}</span></span>`
-    );
+  const kind = meta.kind || meta.capture_hint || meta.type;
+  if (kind) {
+    fields.push(`<span class="meta-field">${isInbox ? 'capture hint' : 'type'} <span class="meta-value">${kind}</span></span>`);
   }
   if (meta.captured) {
     fields.push(`<span class="meta-field">captured <span class="meta-value">${formatDateTime(meta.captured)}</span></span>`);
@@ -343,7 +325,7 @@ async function boot() {
 function route(pat: string): Promise<void> {
   const path = currentPath();
   if (path === 'graph') return showGraphView(pat);
-  if (path === 'triage') return showTriageView(pat);
+  if (path === 'triage') return showInboxReview(pat, navOrder);
   return loadPage(pat, path);
 }
 
@@ -721,7 +703,7 @@ async function loadPage(pat: string, path: string) {
   completeBtn.hidden = !path.startsWith('inbox/');
   completeBtn.disabled = false;
   completeBtn.textContent = '✓ complete';
-  content.classList.remove('graph-view', 'triage-view');
+  content.classList.remove('graph-view', 'triage-view', 'inbox-review-view');
   content.classList.add('doc');
   content.innerHTML = '<p class="hint">Loading…</p>';
 
@@ -747,48 +729,10 @@ async function loadPage(pat: string, path: string) {
     };
     refreshUpdated();
 
-    const typeSelect = document.querySelector<HTMLSelectElement>('#type-select');
-    typeSelect?.addEventListener('change', () => {
-      void updateType(pat, path, typeSelect.value, raw, refreshUpdated);
-    });
   } catch (err) {
     pendingEnterAnim = null;
     updateActiveHighlight(path);
     showError(err, path, () => loadPage(pat, path));
-  }
-}
-
-const CAPTURE_RECENT_KEY = 'memory_tools_recent';
-
-function syncCaptureRecentType(path: string, newType: string) {
-  try {
-    const list = JSON.parse(localStorage.getItem(CAPTURE_RECENT_KEY) ?? '[]') as { path?: string; type?: string }[];
-    let changed = false;
-    for (const item of list) {
-      if (item.path === path) {
-        item.type = newType;
-        changed = true;
-      }
-    }
-    if (changed) localStorage.setItem(CAPTURE_RECENT_KEY, JSON.stringify(list));
-  } catch {
-    // best-effort cross-app cache sync only — never block the actual edit on this
-  }
-}
-
-async function updateType(pat: string, path: string, newType: string, raw: string, onDone: () => void) {
-  const select = document.querySelector<HTMLSelectElement>('#type-select')!;
-  select.disabled = true;
-  try {
-    const newRaw = raw.replace(/^type:.*$/m, `type: ${newType}`);
-    await updateFileContent(pat, path, newRaw, `update: ${path} type -> ${newType}`);
-    contentCache.set(path, newRaw);
-    syncCaptureRecentType(path, newType);
-    onDone();
-  } catch (err) {
-    alert(err instanceof Error ? err.message : 'Could not update type.');
-  } finally {
-    select.disabled = false;
   }
 }
 
@@ -909,7 +853,7 @@ async function buildGraphData(pat: string, paths: string[]): Promise<{ nodes: Gr
           }
         }
 
-        const type = path.startsWith('inbox/') && meta.type ? meta.type : null;
+        const type = path.startsWith('inbox/') ? meta.kind || meta.capture_hint || meta.type || null : null;
         nodes.set(path, { path, label: extractLabel(body), type, issues, suggestions: [], x: 0, y: 0 });
         outgoing.set(path, resolved.size);
         resolved.forEach((target) => {
@@ -1301,371 +1245,6 @@ async function showGraphView(pat: string) {
     document.querySelector('.content-column')?.scrollTo(0, 0);
   } catch (err) {
     showError(err, undefined, () => void showGraphView(pat));
-  }
-}
-
-// Speaks the status/decision/target contract (architecture.md's "Capture
-// item lifecycle") rather than the app's own ad-hoc fields — the
-// tools/inbox-review/ GitHub Action owns captured -> enriched, this view
-// owns enriched -> decided, and a future agent session owns decided -> done.
-// This view NEVER executes a decision (never writes into projects/*.md,
-// ideas/*.md, threads.md, never deletes the inbox file) — it only records
-// what Tom chose, same "propose, don't execute" boundary the old term-
-// overlap Triage already established.
-const DECISIONS = ['route', 'idea', 'research', 'thread', 'bin'] as const;
-type Decision = (typeof DECISIONS)[number];
-
-interface EnrichmentStages {
-  classify: string;
-  extract: string;
-  relate: string;
-  develop: string;
-  suggest: string;
-}
-
-interface TriageItem {
-  path: string;
-  type: string | null;
-  captured: string | null;
-  status: string;
-  enrichmentAttempts: number;
-  original: string;
-  stages: EnrichmentStages | null;
-  recommendation: Decision | null;
-  suggestedTarget: string | null;
-  decision: string | null;
-  target: string | null;
-}
-
-// One-line meaning for each disposition — shown once as a legend rather
-// than per-button tooltips, since Capture (and this Viewer, read on a
-// phone as often as a desktop) is mobile-first and hover-only titles
-// never reach a touch user.
-const DECISION_HINTS: Record<Decision, string> = {
-  route: 'file into an existing page — pick where below',
-  idea: 'park in ideas/ — not committed to yet',
-  research: 'not enough here to decide — needs more digging first',
-  thread: 'log as an open tangent, not a discrete project',
-  bin: 'discard — not worth pursuing',
-};
-
-// What Tom originally captured, before any enrichment — the thing every
-// other section of the card is commentary ON, so it has to stay visible
-// underneath that commentary rather than being implied by it.
-function splitOriginalText(body: string): string {
-  const marker = body.indexOf('## Enrichment (auto,');
-  return (marker === -1 ? body : body.slice(0, marker)).trim();
-}
-
-// The ## Enrichment section's stage headings are consistent
-// ("### 1. Classify" etc, tools/inbox-review/review.py's STAGE_INSTRUCTIONS)
-// but the status line above them can word-wrap across more than one
-// physical line (seen from deepseek-chat) — same reason review.py itself
-// moved from a first-\n split to searching for the first stage heading as
-// the real content boundary. Mirrored here for the same robustness.
-function parseEnrichmentStages(body: string): EnrichmentStages | null {
-  const marker = body.indexOf('## Enrichment (auto,');
-  if (marker === -1) return null;
-  const stageNames: Record<string, keyof EnrichmentStages> = {
-    classify: 'classify',
-    extract: 'extract',
-    relate: 'relate',
-    develop: 'develop',
-    suggest: 'suggest',
-  };
-  const stages: Partial<EnrichmentStages> = {};
-  const re = /###\s+\d+\.\s+(\w+)\s*\n([\s\S]*?)(?=\n###\s+\d+\.|\s*$)/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(body.slice(marker)))) {
-    const key = stageNames[m[1].toLowerCase()];
-    if (key) stages[key] = m[2].trim();
-  }
-  if (!stages.classify && !stages.suggest) return null;
-  return {
-    classify: stages.classify ?? '',
-    extract: stages.extract ?? '',
-    relate: stages.relate ?? '',
-    develop: stages.develop ?? '',
-    suggest: stages.suggest ?? '',
-  };
-}
-
-// Best-effort pre-select only — Tom always picks the actual button. Looks
-// inside **bolded** spans specifically (where the model consistently states
-// its verdict, e.g. "**thread** — log this...", "**Bin** — This note...")
-// rather than the whole Suggest text, since a plain substring/word-boundary
-// search over the full text false-positives on negated mentions like
-// "not a new **idea**... recommend thread" matching "idea" first.
-function guessRecommendation(suggestText: string): Decision | null {
-  const head = suggestText.slice(0, 300);
-  const boldSpans = [...head.matchAll(/\*\*(.*?)\*\*/g)].map((m) => m[1].toLowerCase());
-  for (const span of boldSpans) {
-    for (const d of DECISIONS) {
-      if (new RegExp(`\\b${d}\\b`).test(span)) return d;
-    }
-  }
-  return null;
-}
-
-// The model consistently cites file paths in backtick code-spans throughout
-// every stage (see any real ## Enrichment section) — reuse that convention
-// to pull a candidate route target out of the Suggest text.
-function guessTargetPath(suggestText: string): string | null {
-  const m = suggestText.match(/`([\w./-]+\.md)`/);
-  return m ? m[1] : null;
-}
-
-async function buildTriageQueue(pat: string, paths: string[]): Promise<TriageItem[]> {
-  const inboxPaths = paths.filter((p) => p.startsWith('inbox/') && p !== 'inbox/README.md');
-  const items: TriageItem[] = [];
-
-  let index = 0;
-  const worker = async () => {
-    while (index < inboxPaths.length) {
-      const path = inboxPaths[index++];
-      try {
-        const raw = await getFileContent(pat, path);
-        const { meta, body } = parseFrontmatter(raw);
-        const stages = parseEnrichmentStages(body);
-        items.push({
-          path,
-          type: meta.type ?? null,
-          captured: meta.captured ?? null,
-          status: meta.status || 'captured',
-          enrichmentAttempts: Number(meta.enrichment_attempts) || 0,
-          original: splitOriginalText(body),
-          stages,
-          recommendation: stages ? guessRecommendation(stages.suggest) : null,
-          suggestedTarget: stages ? guessTargetPath(stages.suggest) : null,
-          decision: meta.decision && meta.decision !== 'none' ? meta.decision : null,
-          target: meta.target && meta.target !== 'none' ? meta.target : null,
-        });
-      } catch {
-        items.push({
-          path,
-          type: null,
-          captured: null,
-          status: 'captured',
-          enrichmentAttempts: 0,
-          original: '',
-          stages: null,
-          recommendation: null,
-          suggestedTarget: null,
-          decision: null,
-          target: null,
-        });
-      }
-    }
-  };
-  await Promise.all(Array.from({ length: GRAPH_FETCH_CONCURRENCY }, worker));
-
-  // Oldest first within each group, so the queue reads front-to-back in
-  // capture order rather than API/fetch-completion order.
-  items.sort((a, b) => (a.captured ?? '').localeCompare(b.captured ?? ''));
-  return items;
-}
-
-function renderStageDetail(stages: EnrichmentStages): string {
-  const section = (label: string, text: string) => (text ? `<div class="triage-stage"><h4>${label}</h4>${marked.parse(text, { async: false })}</div>` : '');
-  return `
-    <details class="triage-detail">
-      <summary>full reasoning</summary>
-      ${section('1. Classify', stages.classify)}
-      ${section('2. Extract', stages.extract)}
-      ${section('3. Relate', stages.relate)}
-      ${section('4. Develop', stages.develop)}
-      ${section('5. Suggest', stages.suggest)}
-    </details>
-  `;
-}
-
-function renderOriginal(item: TriageItem): string {
-  return `<div class="triage-original">${marked.parse(item.original || '*(empty capture)*', { async: false })}</div>`;
-}
-
-function renderDecisionRow(item: TriageItem): string {
-  const targetField =
-    item.recommendation === 'route' || item.suggestedTarget
-      ? `<label class="triage-target-field" title="only used for a route decision — the page this should be filed into">target (route only) <input type="text" class="triage-target-input" data-path="${item.path}" value="${item.suggestedTarget ?? ''}" placeholder="projects/example.md" /></label>`
-      : '';
-  const buttons = DECISIONS.map(
-    (d) =>
-      `<button type="button" class="triage-btn triage-btn-decide${d === item.recommendation ? ' triage-btn-recommended' : ''}" data-path="${item.path}" data-decision="${d}" title="${DECISION_HINTS[d]}">${d}</button>`
-  ).join('');
-  return `<div class="triage-decision-row">${buttons}</div>${targetField}`;
-}
-
-function renderReadyItem(item: TriageItem): string {
-  const typeLabel = item.type ? `<span class="triage-type triage-type-${item.type}">${item.type}</span>` : '';
-  const suggestHtml = item.stages?.suggest ? marked.parse(item.stages.suggest, { async: false }) : '<p class="hint">No recommendation text.</p>';
-  return `
-    <li class="triage-item" data-path="${item.path}">
-      <div class="triage-item-head">
-        ${typeLabel}
-        <a href="#/${encodeURIComponent(item.path)}" class="triage-path">${item.path}</a>
-      </div>
-      ${renderOriginal(item)}
-      <div class="triage-suggest">${suggestHtml}</div>
-      ${item.stages ? renderStageDetail(item.stages) : ''}
-      ${renderDecisionRow(item)}
-    </li>
-  `;
-}
-
-function renderStuckItem(item: TriageItem): string {
-  return `
-    <li class="triage-item triage-item-stuck" data-path="${item.path}">
-      <div class="triage-item-head">
-        ${item.type ? `<span class="triage-type triage-type-${item.type}">${item.type}</span>` : ''}
-        <a href="#/${encodeURIComponent(item.path)}" class="triage-path">${item.path}</a>
-        <span class="triage-age">attempt ${item.enrichmentAttempts}${item.enrichmentAttempts >= 3 ? ' — gave up, needs a manual look' : ''}</span>
-      </div>
-      ${renderOriginal(item)}
-      <button type="button" class="triage-btn triage-btn-discard" data-path="${item.path}">discard</button>
-    </li>
-  `;
-}
-
-function renderPendingItem(item: TriageItem): string {
-  return `
-    <li class="triage-item triage-item-pending" data-path="${item.path}">
-      <div class="triage-item-head">
-        ${item.type ? `<span class="triage-type triage-type-${item.type}">${item.type}</span>` : ''}
-        <a href="#/${encodeURIComponent(item.path)}" class="triage-path">${item.path}</a>
-      </div>
-      ${renderOriginal(item)}
-      <button type="button" class="triage-btn triage-btn-discard" data-path="${item.path}">discard</button>
-    </li>
-  `;
-}
-
-function renderDecidedItem(item: TriageItem): string {
-  return `
-    <li class="triage-item triage-item-decided" data-path="${item.path}">
-      <div class="triage-item-head">
-        ${item.type ? `<span class="triage-type triage-type-${item.type}">${item.type}</span>` : ''}
-        <a href="#/${encodeURIComponent(item.path)}" class="triage-path">${item.path}</a>
-      </div>
-      ${renderOriginal(item)}
-      <p class="triage-status">decided: ${item.decision}${item.target ? ` &rarr; ${item.target}` : ''}</p>
-      <button type="button" class="triage-btn triage-btn-undo" data-path="${item.path}" data-decision="undo">undo</button>
-    </li>
-  `;
-}
-
-function renderTriageView(items: TriageItem[]): string {
-  const ready = items.filter((i) => i.status === 'enriched');
-  const stuck = items.filter((i) => i.status === 'captured' && i.enrichmentAttempts > 0);
-  const decided = items.filter((i) => i.status === 'decided');
-  const pending = items.filter((i) => i.status === 'captured' && i.enrichmentAttempts === 0);
-
-  if (!items.length) return '<p class="hint">Inbox is empty — nothing to triage.</p>';
-
-  const legend = `<p class="triage-legend">${DECISIONS.map((d) => `<strong>${d}</strong> = ${DECISION_HINTS[d]}`).join(' &middot; ')}</p>`;
-
-  const sections: string[] = [];
-  sections.push(
-    ready.length
-      ? `<h3 class="triage-section-title">ready to decide (${ready.length})</h3>${legend}<ul class="triage-list">${ready.map(renderReadyItem).join('')}</ul>`
-      : '<p class="hint">Nothing enriched yet — check back once the inbox-review workflow has run.</p>'
-  );
-  if (stuck.length) {
-    sections.push(
-      `<h3 class="triage-section-title">needs attention (${stuck.length})</h3><ul class="triage-list">${stuck.map(renderStuckItem).join('')}</ul>`
-    );
-  }
-  if (decided.length) {
-    sections.push(
-      `<details class="triage-decided-group"><summary>recently decided (${decided.length})</summary><ul class="triage-list">${decided.map(renderDecidedItem).join('')}</ul></details>`
-    );
-  }
-  if (pending.length) {
-    sections.push(
-      `<h3 class="triage-section-title">not yet processed (${pending.length})</h3><p class="hint">Waiting on the inbox-review workflow — discard now if it's obviously not worth keeping.</p><ul class="triage-list">${pending.map(renderPendingItem).join('')}</ul>`
-    );
-  }
-  return sections.join('');
-}
-
-async function applyTriageDecision(pat: string, path: string, decision: string, target: string | undefined) {
-  const item = document.querySelector<HTMLElement>(`.triage-item[data-path="${CSS.escape(path)}"]`);
-  item?.classList.add('busy');
-  try {
-    const raw = await getFileContent(pat, path);
-    const fields =
-      decision === 'undo'
-        ? { status: 'enriched', decision: 'none', target: 'none' }
-        : { status: 'decided', decision, target: target && decision === 'route' ? target : 'none' };
-    const newRaw = setFrontmatterFields(raw, fields);
-    await updateFileContent(pat, path, newRaw, `triage: ${path} -> ${decision}${target ? ` (${target})` : ''}`);
-    contentCache.set(path, newRaw);
-    await showTriageView(pat);
-  } catch (err) {
-    alert(err instanceof Error ? err.message : 'Could not record decision.');
-    item?.classList.remove('busy');
-  }
-}
-
-// architecture.md's contract already says bin's eventual "done" step is
-// "remove the inbox file" — the execution half was just never built. This
-// is that: bin (and the plain "discard" buttons on stuck/pending items,
-// which have no AI recommendation to disagree with anyway) delete straight
-// away instead of leaving a decision: bin flag sitting in an inbox that
-// still looks cluttered.
-async function discardTriageItem(pat: string, path: string) {
-  if (!confirm(`Discard ${path}? This deletes it from the inbox — there's no undo from here.`)) return;
-  const item = document.querySelector<HTMLElement>(`.triage-item[data-path="${CSS.escape(path)}"]`);
-  item?.classList.add('busy');
-  try {
-    await deleteInboxFile(pat, path);
-    contentCache.delete(path);
-    await showTriageView(pat);
-  } catch (err) {
-    alert(err instanceof Error ? err.message : 'Could not discard item.');
-    item?.classList.remove('busy');
-  }
-}
-
-function wireTriageActions(pat: string) {
-  document.querySelector<HTMLElement>('#content')?.addEventListener('click', (e) => {
-    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('.triage-btn-decide, .triage-btn-undo, .triage-btn-discard');
-    if (!btn) return;
-    const path = btn.dataset.path!;
-
-    if (btn.classList.contains('triage-btn-discard') || btn.dataset.decision === 'bin') {
-      void discardTriageItem(pat, path);
-      return;
-    }
-
-    const decision = btn.dataset.decision!;
-    const targetInput = document.querySelector<HTMLInputElement>(`.triage-target-input[data-path="${CSS.escape(path)}"]`);
-    void applyTriageDecision(pat, path, decision, targetInput?.value.trim() || undefined);
-  });
-}
-
-async function showTriageView(pat: string) {
-  const breadcrumb = document.querySelector<HTMLParagraphElement>('#breadcrumb')!;
-  const updatedEl = document.querySelector<HTMLElement>('#last-updated')!;
-  const editLink = document.querySelector<HTMLAnchorElement>('#edit-link')!;
-  const completeBtn = document.querySelector<HTMLButtonElement>('#complete-btn')!;
-  const content = document.querySelector<HTMLElement>('#content')!;
-
-  breadcrumb.textContent = 'triage';
-  updatedEl.textContent = '';
-  editLink.hidden = true;
-  completeBtn.hidden = true;
-  updateActiveHighlight('triage');
-  content.classList.remove('doc');
-  content.classList.add('triage-view');
-  content.innerHTML = '<p class="hint">Building triage queue…</p>';
-
-  try {
-    const items = await buildTriageQueue(pat, navOrder);
-    content.innerHTML = renderTriageView(items);
-    wireTriageActions(pat);
-    document.querySelector('.content-column')?.scrollTo(0, 0);
-  } catch (err) {
-    showError(err, undefined, () => void showTriageView(pat));
   }
 }
 

@@ -13,7 +13,9 @@ export function githubEditUrl(path: string): string {
   return `https://github.com/${OWNER}/${REPO}/edit/${BRANCH}/${path}`;
 }
 
-export type CaptureType = 'idea' | 'task' | 'link';
+export function githubInboxWorkflowUrl(): string {
+  return `https://github.com/${OWNER}/${REPO}/actions/workflows/inbox-review.yml`;
+}
 
 function authHeaders(pat: string) {
   return {
@@ -47,18 +49,18 @@ function fromBase64Utf8(base64: string): string {
   return new TextDecoder('utf-8').decode(bytes);
 }
 
-export async function createInboxEntry(pat: string, text: string, type: CaptureType): Promise<string> {
+export async function createInboxEntry(pat: string, text: string): Promise<string> {
   const iso = new Date().toISOString();
   const dateStr = iso.slice(0, 10);
   const path = `inbox/${dateStr}-${slugify(text)}.md`;
 
-  const content = `---\ntype: ${type}\ncaptured: ${iso}\nsource: mobile-capture\n---\n\n${text}\n`;
+  const content = `---\ncaptured: ${iso}\nsource: mobile-capture\nstatus: captured\n---\n\n${text}\n`;
 
   const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/contents/${encodeURIComponent(path)}`, {
     method: 'PUT',
     headers: { ...authHeaders(pat), 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      message: `capture: ${type} — ${text.slice(0, 60)}`,
+      message: `capture: ${text.slice(0, 60)}`,
       content: toBase64Utf8(content),
       branch: BRANCH,
     }),

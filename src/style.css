@@ -191,35 +191,6 @@ body {
   gap: 0.85rem;
 }
 
-.type-toggle {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.type-toggle label {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.35rem;
-  padding: 0.5rem;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 0.85rem;
-  color: var(--muted);
-  transition: border-color 0.12s ease, color 0.12s ease;
-}
-
-.type-toggle label:has(input:checked) {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.type-toggle input {
-  accent-color: var(--accent);
-}
-
 .prompt-box {
   display: flex;
   align-items: flex-start;
@@ -377,15 +348,6 @@ button[type='submit']:disabled {
 
 .recent-link:hover .recent-snippet {
   text-decoration: underline;
-}
-
-.recent-type {
-  color: var(--accent);
-  flex-shrink: 0;
-}
-
-.recent-type::before {
-  content: '> ';
 }
 
 .recent-snippet {
