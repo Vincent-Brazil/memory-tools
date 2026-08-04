@@ -1,8 +1,8 @@
 import { marked } from 'marked';
 import {
-  fetchFileContent,
-  githubInboxWorkflowUrl,
-  updateFileContent,
+    fetchFileContent,
+    githubInboxWorkflowUrl,
+    updateFileContent,
 } from '../github';
 
 const FETCH_CONCURRENCY = 6;
@@ -10,216 +10,216 @@ const PROPOSAL_MARKER = '## Proposal (auto)';
 
 type ProposalKind = 'idea' | 'task' | 'bookmark' | 'unclear';
 type ProposalOutcome =
-  | 'save_idea'
-  | 'add_project_task'
-  | 'send_to_cockpit'
-  | 'create_research_task'
-  | 'attach_source'
-  | 'save_bookmark'
-  | 'ask_clarification'
-  | 'discard';
+    | 'save_idea'
+    | 'add_project_task'
+    | 'send_to_cockpit'
+    | 'create_research_task'
+    | 'attach_source'
+    | 'save_bookmark'
+    | 'ask_clarification'
+    | 'discard';
 
 interface ProposalRelation {
-  path: string;
-  reason: string;
+    path: string;
+    reason: string;
 }
 
 interface ReviewProposal {
-  schema_version: 2;
-  kind: ProposalKind;
-  title: string;
-  summary: string;
-  why_it_matters: string;
-  grounding: string;
-  viability: string;
-  approach: string;
-  definition_of_done: string;
-  next_step: string;
-  biggest_unknown: string;
-  clarifying_question: string;
-  executor: 'human' | 'agent' | 'either' | 'none';
-  outcome: ProposalOutcome;
-  outcome_label: string;
-  target: string;
-  approval_effect: string;
-  evidence: string[];
-  related: ProposalRelation[];
+    schema_version: 2;
+    kind: ProposalKind;
+    title: string;
+    summary: string;
+    why_it_matters: string;
+    grounding: string;
+    viability: string;
+    approach: string;
+    definition_of_done: string;
+    next_step: string;
+    biggest_unknown: string;
+    clarifying_question: string;
+    executor: 'human' | 'agent' | 'either' | 'none';
+    outcome: ProposalOutcome;
+    outcome_label: string;
+    target: string;
+    approval_effect: string;
+    evidence: string[];
+    related: ProposalRelation[];
 }
 
 interface ReviewItem {
-  path: string;
-  captured: string;
-  captureHint: string;
-  status: string;
-  original: string;
-  proposal: ReviewProposal | null;
-  attempts: number;
-  error: string;
-  feedback: string;
-  approvedOutcome: string;
-  approvedTarget: string;
+    path: string;
+    captured: string;
+    captureHint: string;
+    status: string;
+    original: string;
+    proposal: ReviewProposal | null;
+    attempts: number;
+    error: string;
+    feedback: string;
+    approvedOutcome: string;
+    approvedTarget: string;
 }
 
 interface QueueLoadResult {
-  items: ReviewItem[];
-  missingPaths: string[];
+    items: ReviewItem[];
+    missingPaths: string[];
 }
 
 function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (character) => {
-    const entities: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
-    return entities[character];
-  });
+    return value.replace(/[&<>"']/g, (character) => {
+        const entities: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+        return entities[character];
+    });
 }
 
 function decodeFlatScalar(value: string): string {
-  const trimmed = value.trim();
-  if (trimmed.startsWith('"')) {
-    try {
-      return JSON.parse(trimmed) as string;
-    } catch {
-      return trimmed;
+    const trimmed = value.trim();
+    if (trimmed.startsWith('"')) {
+        try {
+            return JSON.parse(trimmed) as string;
+        } catch {
+            return trimmed;
+        }
     }
-  }
-  return trimmed.replace(/^'|'$/g, '');
+    return trimmed.replace(/^'|'$/g, '');
 }
 
 export function parseFrontmatter(raw: string): { meta: Record<string, string>; body: string } {
-  const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
-  if (!match) return { meta: {}, body: raw };
-  const meta: Record<string, string> = {};
-  for (const line of match[1].split(/\r?\n/)) {
-    const field = line.match(/^([a-zA-Z0-9_-]+):\s*(.*)$/);
-    if (field) meta[field[1]] = decodeFlatScalar(field[2]);
-  }
-  return { meta, body: raw.slice(match[0].length) };
+    const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
+    if (!match) return { meta: {}, body: raw };
+    const meta: Record<string, string> = {};
+    for (const line of match[1].split(/\r?\n/)) {
+        const field = line.match(/^([a-zA-Z0-9_-]+):\s*(.*)$/);
+        if (field) meta[field[1]] = decodeFlatScalar(field[2]);
+    }
+    return { meta, body: raw.slice(match[0].length) };
 }
 
 function yamlScalar(value: string): string {
-  return /^[a-zA-Z0-9_.:/-]+$/.test(value) ? value : JSON.stringify(value);
+    return /^[a-zA-Z0-9_.:/-]+$/.test(value) ? value : JSON.stringify(value);
 }
 
 function updateFrontmatter(raw: string, updates: Record<string, string | null>): string {
-  const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
-  const lines = match ? match[1].split(/\r?\n/) : [];
-  for (const [key, value] of Object.entries(updates)) {
-    const index = lines.findIndex((line) => new RegExp(`^${key}:`).test(line));
-    if (value === null) {
-      if (index !== -1) lines.splice(index, 1);
-      continue;
+    const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
+    const lines = match ? match[1].split(/\r?\n/) : [];
+    for (const [key, value] of Object.entries(updates)) {
+        const index = lines.findIndex((line) => new RegExp(`^${key}:`).test(line));
+        if (value === null) {
+            if (index !== -1) lines.splice(index, 1);
+            continue;
+        }
+        const next = `${key}: ${yamlScalar(value)}`;
+        if (index === -1) lines.push(next);
+        else lines[index] = next;
     }
-    const next = `${key}: ${yamlScalar(value)}`;
-    if (index === -1) lines.push(next);
-    else lines[index] = next;
-  }
-  const body = match ? raw.slice(match[0].length) : raw;
-  return `---\n${lines.join('\n')}\n---\n\n${body.replace(/^\s+/, '')}`;
+    const body = match ? raw.slice(match[0].length) : raw;
+    return `---\n${lines.join('\n')}\n---\n\n${body.replace(/^\s+/, '')}`;
 }
 
 function originalText(body: string): string {
-  const proposal = body.indexOf(PROPOSAL_MARKER);
-  const legacy = body.indexOf('## Enrichment (auto,');
-  const markers = [proposal, legacy].filter((index) => index >= 0);
-  return (markers.length ? body.slice(0, Math.min(...markers)) : body).trim();
+    const proposal = body.indexOf(PROPOSAL_MARKER);
+    const legacy = body.indexOf('## Enrichment (auto,');
+    const markers = [proposal, legacy].filter((index) => index >= 0);
+    return (markers.length ? body.slice(0, Math.min(...markers)) : body).trim();
 }
 
 function stripProposal(raw: string): string {
-  return raw.replace(/\n## Proposal \(auto\)[\s\S]*$/, '\n').trimEnd() + '\n';
+    return raw.replace(/\n## Proposal \(auto\)[\s\S]*$/, '\n').trimEnd() + '\n';
 }
 
 function parseProposal(body: string): ReviewProposal | null {
-  const match = body.match(/<!--\s*inbox-proposal:v2\s*\r?\n([\s\S]*?)\r?\n-->/);
-  if (!match) return null;
-  try {
-    const value = JSON.parse(match[1]) as ReviewProposal;
-    if (value.schema_version !== 2 || !value.title || !value.outcome_label || !value.approval_effect) return null;
-    return value;
-  } catch {
-    return null;
-  }
+    const match = body.match(/<!--\s*inbox-proposal:v2\s*\r?\n([\s\S]*?)\r?\n-->/);
+    if (!match) return null;
+    try {
+        const value = JSON.parse(match[1]) as ReviewProposal;
+        if (value.schema_version !== 2 || !value.title || !value.outcome_label || !value.approval_effect) return null;
+        return value;
+    } catch {
+        return null;
+    }
 }
 
 export async function buildQueue(
-  pat: string,
-  paths: string[],
-  fetchContent: (pat: string, path: string) => Promise<string> = fetchFileContent
+    pat: string,
+    paths: string[],
+    fetchContent: (pat: string, path: string) => Promise<string> = fetchFileContent
 ): Promise<QueueLoadResult> {
-  const inboxPaths = paths.filter((path) => path.startsWith('inbox/') && path !== 'inbox/README.md');
-  const items: ReviewItem[] = [];
-  const missingPaths: string[] = [];
-  let index = 0;
-  const worker = async () => {
-    while (index < inboxPaths.length) {
-      const path = inboxPaths[index++];
-      try {
-        const raw = await fetchContent(pat, path);
-        const { meta, body } = parseFrontmatter(raw);
-        items.push({
-          path,
-          captured: meta.captured ?? '',
-          captureHint: meta.capture_hint ?? meta.type ?? '',
-          status: meta.status || 'captured',
-          original: originalText(body),
-          proposal: parseProposal(body),
-          attempts: Number(meta.shaping_attempts ?? meta.preparation_attempts) || 0,
-          error: meta.shaping_error ?? meta.preparation_error ?? '',
-          feedback: meta.review_feedback ?? '',
-          approvedOutcome: meta.approved_outcome ?? '',
-          approvedTarget: meta.approved_target ?? '',
-        });
-      } catch (error) {
-        if (error instanceof Error && error.message.startsWith('Not found in memory:')) {
-          missingPaths.push(path);
-          continue;
+    const inboxPaths = paths.filter((path) => path.startsWith('inbox/') && path !== 'inbox/README.md');
+    const items: ReviewItem[] = [];
+    const missingPaths: string[] = [];
+    let index = 0;
+    const worker = async () => {
+        while (index < inboxPaths.length) {
+            const path = inboxPaths[index++];
+            try {
+                const raw = await fetchContent(pat, path);
+                const { meta, body } = parseFrontmatter(raw);
+                items.push({
+                    path,
+                    captured: meta.captured ?? '',
+                    captureHint: meta.capture_hint ?? meta.type ?? '',
+                    status: meta.status || 'captured',
+                    original: originalText(body),
+                    proposal: parseProposal(body),
+                    attempts: Number(meta.shaping_attempts ?? meta.preparation_attempts) || 0,
+                    error: meta.shaping_error ?? meta.preparation_error ?? '',
+                    feedback: meta.review_feedback ?? '',
+                    approvedOutcome: meta.approved_outcome ?? '',
+                    approvedTarget: meta.approved_target ?? '',
+                });
+            } catch (error) {
+                if (error instanceof Error && error.message.startsWith('Not found in memory:')) {
+                    missingPaths.push(path);
+                    continue;
+                }
+                items.push({
+                    path,
+                    captured: '',
+                    captureHint: '',
+                    status: 'needs_attention',
+                    original: '',
+                    proposal: null,
+                    attempts: 0,
+                    error: error instanceof Error ? error.message : 'Could not load this capture.',
+                    feedback: '',
+                    approvedOutcome: '',
+                    approvedTarget: '',
+                });
+            }
         }
-        items.push({
-          path,
-          captured: '',
-          captureHint: '',
-          status: 'needs_attention',
-          original: '',
-          proposal: null,
-          attempts: 0,
-          error: error instanceof Error ? error.message : 'Could not load this capture.',
-          feedback: '',
-          approvedOutcome: '',
-          approvedTarget: '',
-        });
-      }
-    }
-  };
-  await Promise.all(Array.from({ length: FETCH_CONCURRENCY }, worker));
-  return {
-    items: items.sort((left, right) => left.captured.localeCompare(right.captured)),
-    missingPaths,
-  };
+    };
+    await Promise.all(Array.from({ length: FETCH_CONCURRENCY }, worker));
+    return {
+        items: items.sort((left, right) => left.captured.localeCompare(right.captured)),
+        missingPaths,
+    };
 }
 
 function renderOriginal(item: ReviewItem): string {
-  const original = item.original || '*(empty capture)*';
-  return `<blockquote class="review-original">${marked.parse(escapeHtml(original), { async: false })}</blockquote>`;
+    const original = item.original || '*(empty capture)*';
+    return `<blockquote class="review-original">${marked.parse(escapeHtml(original), { async: false })}</blockquote>`;
 }
 
 function renderDetail(label: string, value: string): string {
-  if (!value) return '';
-  return `<section class="review-detail"><h4>${escapeHtml(label)}</h4><p>${escapeHtml(value)}</p></section>`;
+    if (!value) return '';
+    return `<section class="review-detail"><h4>${escapeHtml(label)}</h4><p>${escapeHtml(value)}</p></section>`;
 }
 
 function renderEvidence(proposal: ReviewProposal): string {
-  if (!proposal.evidence.length && !proposal.related.length) return '';
-  const evidence = proposal.evidence.length
-    ? `<h4>Evidence</h4><ul>${proposal.evidence.map((entry) => `<li>${escapeHtml(entry)}</li>`).join('')}</ul>`
-    : '';
-  const related = proposal.related.length
-    ? `<h4>Related</h4><ul>${proposal.related
-        .map((entry) => `<li><strong>${escapeHtml(entry.path)}</strong>: ${escapeHtml(entry.reason)}</li>`)
-        .join('')}</ul>`
-    : '';
-  return `<details class="review-evidence"><summary>Evidence and related items</summary>${evidence}${related}</details>`;
+    if (!proposal.evidence.length && !proposal.related.length) return '';
+    const evidence = proposal.evidence.length
+        ? `<h4>Evidence</h4><ul>${proposal.evidence.map((entry) => `<li>${escapeHtml(entry)}</li>`).join('')}</ul>`
+        : '';
+    const related = proposal.related.length
+        ? `<h4>Related</h4><ul>${proposal.related
+            .map((entry) => `<li><strong>${escapeHtml(entry.path)}</strong>: ${escapeHtml(entry.reason)}</li>`)
+            .join('')}</ul>`
+        : '';
+    return `<details class="review-evidence"><summary>Evidence and related items</summary>${evidence}${related}</details>`;
 }
 
 function renderChangeForm(item: ReviewItem): string {
-  return `<div class="review-change" data-change-for="${escapeHtml(item.path)}" hidden>
+    return `<div class="review-change" data-change-for="${escapeHtml(item.path)}" hidden>
     <label>What is wrong or missing?
       <textarea class="review-feedback" rows="3" placeholder="Add the context DeepSeek needs to shape this again.">${escapeHtml(item.feedback)}</textarea>
     </label>
@@ -230,11 +230,46 @@ function renderChangeForm(item: ReviewItem): string {
   </div>`;
 }
 
+function approvalActionLabel(outcome: ProposalOutcome): string {
+    switch (outcome) {
+        case 'save_idea': return 'Approve for filing as idea';
+        case 'add_project_task': return 'Approve for project backlog';
+        case 'send_to_cockpit': return 'Approve for Cockpit handoff';
+        case 'create_research_task': return 'Approve research task';
+        case 'attach_source': return 'Approve source attachment';
+        case 'save_bookmark': return 'Approve for filing as bookmark';
+        case 'ask_clarification': return 'Approve clarification request';
+        case 'discard': return 'Discard';
+    }
+}
+
+function approvalPendingEffect(outcome: ProposalOutcome, target: string): string {
+    const destination = target || (outcome === 'save_idea' ? 'ideas/' : 'its eventual destination');
+    switch (outcome) {
+        case 'save_idea':
+            return `This records your decision to file the shaped idea in ${destination}. It does not create or move the idea entry yet; the full proposal stays in Inbox under “Approved, awaiting follow-through”.`;
+        case 'add_project_task':
+            return `This records your decision to add the shaped task to ${destination}. It does not update that backlog yet; the full proposal stays in Inbox under “Approved, awaiting follow-through”.`;
+        case 'send_to_cockpit':
+            return 'This records your decision to hand the task to Cockpit. It does not create a Cockpit card yet; the full proposal stays in Inbox under “Approved, awaiting follow-through”.';
+        case 'create_research_task':
+            return 'This records your decision to create research work. It does not create that task yet; the full proposal stays in Inbox under “Approved, awaiting follow-through”.';
+        case 'attach_source':
+            return `This records your decision to attach the source to ${destination}. It does not update that destination yet; the full proposal stays in Inbox under “Approved, awaiting follow-through”.`;
+        case 'save_bookmark':
+            return 'This records your decision to retain the shaped bookmark. It does not file it elsewhere yet; the full proposal stays in Inbox under “Approved, awaiting follow-through”.';
+        case 'ask_clarification':
+            return 'This records that the clarification needs answering. It stays visible in Inbox under “Approved, awaiting follow-through” until that happens.';
+        case 'discard':
+            return 'Discard removes this from the active queue but retains the original capture under “Skipped or discarded” so it can be restored.';
+    }
+}
+
 function renderReady(item: ReviewItem, remaining: number): string {
-  const proposal = item.proposal!;
-  const primaryAction = proposal.outcome === 'discard' ? 'discard' : 'approve';
-  const primaryLabel = proposal.outcome === 'discard' ? 'Discard' : `Approve: ${proposal.outcome_label}`;
-  return `<article class="review-card" data-path="${escapeHtml(item.path)}">
+    const proposal = item.proposal!;
+    const primaryAction = proposal.outcome === 'discard' ? 'discard' : 'approve';
+    const primaryLabel = approvalActionLabel(proposal.outcome);
+    return `<article class="review-card" data-path="${escapeHtml(item.path)}">
     <header class="review-card-header">
       <span class="review-kind review-kind-${proposal.kind}">${escapeHtml(proposal.kind)}</span>
       <span class="review-progress">1 of ${remaining} to review</span>
@@ -255,10 +290,10 @@ function renderReady(item: ReviewItem, remaining: number): string {
     </div>
     ${renderEvidence(proposal)}
     <div class="review-consequence">
-      <span>Proposed outcome</span>
-      <strong>${escapeHtml(proposal.outcome_label)}</strong>
+        <span>What approval does now</span>
+        <strong>${escapeHtml(primaryLabel)}</strong>
       ${proposal.target ? `<code>${escapeHtml(proposal.target)}</code>` : ''}
-      <p>${escapeHtml(proposal.approval_effect)}</p>
+        <p>${escapeHtml(approvalPendingEffect(proposal.outcome, proposal.target))}</p>
     </div>
     <div class="review-actions">
       <button type="button" class="review-btn review-btn-primary review-action" data-action="${primaryAction}" data-path="${escapeHtml(item.path)}">${escapeHtml(primaryLabel)}</button>
@@ -272,12 +307,12 @@ function renderReady(item: ReviewItem, remaining: number): string {
 }
 
 function renderPendingItem(item: ReviewItem, attention = false): string {
-  const message = attention
-    ? escapeHtml(item.error || 'The proposal is missing or invalid and needs to be shaped again.')
-    : item.feedback
-      ? `Waiting to be shaped again with your note: ${escapeHtml(item.feedback)}`
-      : 'Waiting for DeepSeek to shape it.';
-  return `<li class="review-compact-card" data-path="${escapeHtml(item.path)}">
+    const message = attention
+        ? escapeHtml(item.error || 'The proposal is missing or invalid and needs to be shaped again.')
+        : item.feedback
+            ? `Waiting to be shaped again with your note: ${escapeHtml(item.feedback)}`
+            : 'Waiting for DeepSeek to shape it.';
+    return `<li class="review-compact-card" data-path="${escapeHtml(item.path)}">
     <div><strong>${escapeHtml(item.original || item.path)}</strong><p>${message}</p></div>
     <div class="review-compact-actions">
       ${attention ? `<button type="button" class="review-btn review-action" data-action="retry" data-path="${escapeHtml(item.path)}">Retry</button>` : ''}
@@ -289,259 +324,275 @@ function renderPendingItem(item: ReviewItem, attention = false): string {
 }
 
 function renderCompletedItem(item: ReviewItem): string {
-  const receipt = item.status === 'skipped'
+    const receipt = item.status === 'skipped'
     ? 'Skipped for now.'
-    : item.status === 'discarded'
-      ? 'Discarded. The original capture is retained and can be restored.'
-      : `Approved: ${item.approvedOutcome}${item.approvedTarget ? ` → ${item.approvedTarget}` : ''}. Awaiting execution.`;
-  return `<li class="review-completed-card" data-path="${escapeHtml(item.path)}">
+    : 'Discarded. The original capture is retained and can be restored.';
+    return `<li class="review-completed-card" data-path="${escapeHtml(item.path)}">
     <div><strong>${escapeHtml(item.original || item.path)}</strong><p>${escapeHtml(receipt)}</p></div>
     <button type="button" class="review-btn review-action" data-action="restore" data-path="${escapeHtml(item.path)}">${item.status === 'discarded' ? 'Restore capture' : 'Return to review'}</button>
   </li>`;
 }
 
+function renderApprovedItem(item: ReviewItem): string {
+    const outcome = item.approvedOutcome as ProposalOutcome;
+    const title = item.proposal?.title || item.original || item.path;
+    const label = outcome ? approvalActionLabel(outcome).replace(/^Approve /, 'Approved ') : 'Approved';
+    return `<li class="review-awaiting-card" data-path="${escapeHtml(item.path)}">
+    <div><strong>${escapeHtml(title)}</strong><p>${escapeHtml(label)}. Nothing has been filed or handed off yet; the full proposal remains in Inbox until an executor completes it.</p></div>
+    <div class="review-awaiting-actions">
+      <a class="review-source-link" href="#/${encodeURIComponent(item.path)}">Open full proposal</a>
+      <button type="button" class="review-btn review-action" data-action="restore" data-path="${escapeHtml(item.path)}">Undo approval</button>
+    </div>
+    </li>`;
+}
+
 export function renderReview(items: ReviewItem[]): string {
-  const ready = items.filter((item) => item.status === 'ready' && item.proposal);
-  const attention = items.filter((item) => item.status === 'needs_attention' || (item.status === 'ready' && !item.proposal));
-  const pending = items.filter((item) => item.status === 'captured');
-  const completed = items.filter((item) => item.status === 'approved' || item.status === 'skipped' || item.status === 'discarded');
-  const activeTotal = ready.length + attention.length + pending.length;
-  const workflowUrl = githubInboxWorkflowUrl();
-  const sections: string[] = [
-    `<header class="review-page-header"><h1>Inbox review</h1><p>Review one shaped proposal at a time. ${ready.length} ready now, ${pending.length} waiting for DeepSeek, ${attention.length} blocked, ${activeTotal} active in total.</p></header>`,
-  ];
-  if (ready.length) {
-    sections.push(`<h3 class="review-section-title">Ready for you</h3>${renderReady(ready[0], ready.length)}`);
-  } else {
-    sections.push(`<div class="review-empty"><strong>No shaped proposal is waiting for a decision.</strong><span>${pending.length ? `${pending.length} raw capture${pending.length === 1 ? ' is' : 's are'} still waiting for DeepSeek.` : 'There is no active review backlog.'}</span></div>`);
-  }
-  if (attention.length) {
-    sections.push(`<h3 class="review-section-title">Needs attention (${attention.length})</h3><ul class="review-compact-list">${attention
-      .map((item) => renderPendingItem(item, true))
-      .join('')}</ul>`);
-  }
-  if (pending.length) {
-    sections.push(`<details class="review-group" open><summary>Waiting for DeepSeek (${pending.length})</summary>
+    const ready = items.filter((item) => item.status === 'ready' && item.proposal);
+    const attention = items.filter((item) => item.status === 'needs_attention' || (item.status === 'ready' && !item.proposal));
+    const pending = items.filter((item) => item.status === 'captured');
+    const approved = items.filter((item) => item.status === 'approved');
+    const parked = items.filter((item) => item.status === 'skipped' || item.status === 'discarded');
+    const workflowUrl = githubInboxWorkflowUrl();
+    const sections: string[] = [
+            `<header class="review-page-header"><h1>Inbox review</h1><p>Review one shaped proposal at a time. ${ready.length} to review, ${pending.length} waiting for DeepSeek, ${approved.length} approved and awaiting follow-through, ${attention.length} blocked.</p></header>`,
+    ];
+    if (ready.length) {
+        sections.push(`<h3 class="review-section-title">Ready for you</h3>${renderReady(ready[0], ready.length)}`);
+    } else {
+        sections.push(`<div class="review-empty"><strong>No shaped proposal is waiting for a decision.</strong><span>${pending.length ? `${pending.length} raw capture${pending.length === 1 ? ' is' : 's are'} still waiting for DeepSeek.` : 'There is no active review backlog.'}</span></div>`);
+    }
+    if (attention.length) {
+        sections.push(`<h3 class="review-section-title">Needs attention (${attention.length})</h3><ul class="review-compact-list">${attention
+            .map((item) => renderPendingItem(item, true))
+            .join('')}</ul>`);
+    }
+    if (approved.length) {
+        sections.push(`<section class="review-awaiting-group"><h3 class="review-section-title">Approved, awaiting follow-through (${approved.length})</h3>
+      <p class="review-awaiting-help">These are not filed, handed off, or finished. Approval is recorded and the full proposal stays here until an executor completes the destination write.</p>
+      <ul class="review-compact-list">${approved.map(renderApprovedItem).join('')}</ul></section>`);
+    }
+    if (pending.length) {
+        sections.push(`<details class="review-group" open><summary>Waiting for DeepSeek (${pending.length})</summary>
       <p class="review-workflow-help">DeepSeek shapes up to five each morning. The other captures have not been processed yet. <a href="${workflowUrl}" target="_blank" rel="noopener noreferrer">Run Shape inbox now on GitHub ↗</a></p>
       <ul class="review-compact-list">${pending.map((item) => renderPendingItem(item)).join('')}</ul></details>`);
-  }
-  if (completed.length) {
-    sections.push(`<details class="review-group"><summary>Reviewed (${completed.length})</summary><ul class="review-compact-list">${completed
-      .map(renderCompletedItem)
-      .join('')}</ul></details>`);
-  }
-  return sections.join('');
+    }
+    if (parked.length) {
+        sections.push(`<details class="review-group"><summary>Skipped or discarded (${parked.length})</summary><ul class="review-compact-list">${parked
+            .map(renderCompletedItem)
+            .join('')}</ul></details>`);
+    }
+    return sections.join('');
 }
 
 async function writeReviewState(
-  pat: string,
-  item: ReviewItem,
-  updates: Record<string, string | null>,
-  message: string,
-  removeProposal = false
+    pat: string,
+    item: ReviewItem,
+    updates: Record<string, string | null>,
+    message: string,
+    removeProposal = false
 ): Promise<void> {
-  const raw = await fetchFileContent(pat, item.path);
-  const updated = updateFrontmatter(removeProposal ? stripProposal(raw) : raw, updates);
-  await updateFileContent(pat, item.path, updated, message);
+    const raw = await fetchFileContent(pat, item.path);
+    const updated = updateFrontmatter(removeProposal ? stripProposal(raw) : raw, updates);
+    await updateFileContent(pat, item.path, updated, message);
 }
 
 function toggleChange(path: string, visible: boolean): void {
-  const panel = document.querySelector<HTMLElement>(`.review-change[data-change-for="${CSS.escape(path)}"]`);
-  if (!panel) return;
-  panel.hidden = !visible;
-  if (visible) panel.querySelector<HTMLTextAreaElement>('textarea')?.focus();
+    const panel = document.querySelector<HTMLElement>(`.review-change[data-change-for="${CSS.escape(path)}"]`);
+    if (!panel) return;
+    panel.hidden = !visible;
+    if (visible) panel.querySelector<HTMLTextAreaElement>('textarea')?.focus();
 }
 
 function setBusy(path: string, busy: boolean): void {
-  document.querySelector<HTMLElement>(`[data-path="${CSS.escape(path)}"]`)?.classList.toggle('busy', busy);
+    document.querySelector<HTMLElement>(`[data-path="${CSS.escape(path)}"]`)?.classList.toggle('busy', busy);
 }
 
 function wireReviewActions(pat: string, items: ReviewItem[], render: () => void): void {
-  const content = document.querySelector<HTMLElement>('#content')!;
-  const byPath = new Map(items.map((item) => [item.path, item]));
-  content.onclick = (event) => {
-    const button = (event.target as HTMLElement).closest<HTMLButtonElement>('.review-action');
-    if (!button) return;
-    const path = button.dataset.path!;
-    const action = button.dataset.action!;
-    const item = byPath.get(path);
-    if (!item) return;
-    if (action === 'change' || action === 'cancel-change') {
-      toggleChange(path, action === 'change');
-      return;
-    }
-
-    void (async () => {
-      setBusy(path, true);
-      try {
-        if (action === 'discard') {
-          if (!confirm(`Discard this capture?\n\n${item.original || item.path}\n\nIt will leave the active queue but can be restored later.`)) {
-            setBusy(path, false);
+    const content = document.querySelector<HTMLElement>('#content')!;
+    const byPath = new Map(items.map((item) => [item.path, item]));
+    content.onclick = (event) => {
+        const button = (event.target as HTMLElement).closest<HTMLButtonElement>('.review-action');
+        if (!button) return;
+        const path = button.dataset.path!;
+        const action = button.dataset.action!;
+        const item = byPath.get(path);
+        if (!item) return;
+        if (action === 'change' || action === 'cancel-change') {
+            toggleChange(path, action === 'change');
             return;
-          }
-          await writeReviewState(
-            pat,
-            item,
-            {
-              status: 'discarded',
-              discarded_at: new Date().toISOString(),
-              approved_at: null,
-              approved_kind: null,
-              approved_outcome: null,
-              approved_target: null,
-              skipped_at: null,
-            },
-            `inbox review: ${path} -> discarded`
-          );
-          item.status = 'discarded';
-          item.approvedOutcome = '';
-          item.approvedTarget = '';
-        } else if (action === 'approve' && item.proposal) {
-          const now = new Date().toISOString();
-          await writeReviewState(
-            pat,
-            item,
-            {
-              status: 'approved',
-              approved_at: now,
-              approved_kind: item.proposal.kind,
-              approved_outcome: item.proposal.outcome,
-              approved_target: item.proposal.target || null,
-              skipped_at: null,
-            },
-            `inbox review: ${path} -> approved (${item.proposal.outcome})`
-          );
-          item.status = 'approved';
-          item.approvedOutcome = item.proposal.outcome;
-          item.approvedTarget = item.proposal.target;
-        } else if (action === 'skip') {
-          await writeReviewState(
-            pat,
-            item,
-            { status: 'skipped', skipped_at: new Date().toISOString(), approved_at: null, approved_outcome: null, approved_target: null },
-            `inbox review: ${path} -> skipped`
-          );
-          item.status = 'skipped';
-        } else if (action === 'restore') {
-          const nextStatus = item.proposal ? 'ready' : 'captured';
-          await writeReviewState(
-            pat,
-            item,
-            {
-              status: nextStatus,
-              approved_at: null,
-              approved_kind: null,
-              approved_outcome: null,
-              approved_target: null,
-              skipped_at: null,
-              discarded_at: null,
-            },
-            `inbox review: ${path} -> ${nextStatus}`
-          );
-          item.status = nextStatus;
-          item.approvedOutcome = '';
-          item.approvedTarget = '';
-        } else if (action === 'retry') {
-          await writeReviewState(
-            pat,
-            item,
-            {
-              status: 'captured',
-              shaping_attempts: null,
-              shaping_last_attempt: null,
-              shaping_error: null,
-              preparation_attempts: null,
-              preparation_last_attempt: null,
-              preparation_error: null,
-            },
-            `inbox review: ${path} -> retry shaping`,
-            true
-          );
-          item.status = 'captured';
-          item.proposal = null;
-          item.attempts = 0;
-          item.error = '';
-        } else if (action === 'submit-change') {
-          const panel = document.querySelector<HTMLElement>(`.review-change[data-change-for="${CSS.escape(path)}"]`)!;
-          const feedback = panel.querySelector<HTMLTextAreaElement>('.review-feedback')!.value.trim();
-          if (!feedback) {
-            alert('Say what is wrong or missing so the next proposal can improve.');
-            return;
-          }
-          await writeReviewState(
-            pat,
-            item,
-            {
-              status: 'captured',
-              review_feedback: feedback,
-              shaped_at: null,
-              shaped_by: null,
-              shaping_attempts: null,
-              shaping_last_attempt: null,
-              shaping_error: null,
-              prepared_at: null,
-              prepared_by: null,
-              preparation_attempts: null,
-              preparation_last_attempt: null,
-              preparation_error: null,
-              approved_at: null,
-              approved_kind: null,
-              approved_outcome: null,
-              approved_target: null,
-              skipped_at: null,
-            },
-            `inbox review: ${path} -> shape again`,
-            true
-          );
-          item.status = 'captured';
-          item.proposal = null;
-          item.feedback = feedback;
-          item.attempts = 0;
-          item.error = '';
         }
-        render();
-      } catch (error) {
-        alert(error instanceof Error ? error.message : 'Could not update this capture.');
-        setBusy(path, false);
-      }
-    })();
-  };
+
+        void (async () => {
+            setBusy(path, true);
+            try {
+                if (action === 'discard') {
+                    if (!confirm(`Discard this capture?\n\n${item.original || item.path}\n\nIt will leave the active queue but can be restored later.`)) {
+                        setBusy(path, false);
+                        return;
+                    }
+                    await writeReviewState(
+                        pat,
+                        item,
+                        {
+                            status: 'discarded',
+                            discarded_at: new Date().toISOString(),
+                            approved_at: null,
+                            approved_kind: null,
+                            approved_outcome: null,
+                            approved_target: null,
+                            skipped_at: null,
+                        },
+                        `inbox review: ${path} -> discarded`
+                    );
+                    item.status = 'discarded';
+                    item.approvedOutcome = '';
+                    item.approvedTarget = '';
+                } else if (action === 'approve' && item.proposal) {
+                    const now = new Date().toISOString();
+                    await writeReviewState(
+                        pat,
+                        item,
+                        {
+                            status: 'approved',
+                            approved_at: now,
+                            approved_kind: item.proposal.kind,
+                            approved_outcome: item.proposal.outcome,
+                            approved_target: item.proposal.target || null,
+                            skipped_at: null,
+                        },
+                        `inbox review: ${path} -> approved (${item.proposal.outcome})`
+                    );
+                    item.status = 'approved';
+                    item.approvedOutcome = item.proposal.outcome;
+                    item.approvedTarget = item.proposal.target;
+                } else if (action === 'skip') {
+                    await writeReviewState(
+                        pat,
+                        item,
+                        { status: 'skipped', skipped_at: new Date().toISOString(), approved_at: null, approved_outcome: null, approved_target: null },
+                        `inbox review: ${path} -> skipped`
+                    );
+                    item.status = 'skipped';
+                } else if (action === 'restore') {
+                    const nextStatus = item.proposal ? 'ready' : 'captured';
+                    await writeReviewState(
+                        pat,
+                        item,
+                        {
+                            status: nextStatus,
+                            approved_at: null,
+                            approved_kind: null,
+                            approved_outcome: null,
+                            approved_target: null,
+                            skipped_at: null,
+                            discarded_at: null,
+                        },
+                        `inbox review: ${path} -> ${nextStatus}`
+                    );
+                    item.status = nextStatus;
+                    item.approvedOutcome = '';
+                    item.approvedTarget = '';
+                } else if (action === 'retry') {
+                    await writeReviewState(
+                        pat,
+                        item,
+                        {
+                            status: 'captured',
+                            shaping_attempts: null,
+                            shaping_last_attempt: null,
+                            shaping_error: null,
+                            preparation_attempts: null,
+                            preparation_last_attempt: null,
+                            preparation_error: null,
+                        },
+                        `inbox review: ${path} -> retry shaping`,
+                        true
+                    );
+                    item.status = 'captured';
+                    item.proposal = null;
+                    item.attempts = 0;
+                    item.error = '';
+                } else if (action === 'submit-change') {
+                    const panel = document.querySelector<HTMLElement>(`.review-change[data-change-for="${CSS.escape(path)}"]`)!;
+                    const feedback = panel.querySelector<HTMLTextAreaElement>('.review-feedback')!.value.trim();
+                    if (!feedback) {
+                        alert('Say what is wrong or missing so the next proposal can improve.');
+                        return;
+                    }
+                    await writeReviewState(
+                        pat,
+                        item,
+                        {
+                            status: 'captured',
+                            review_feedback: feedback,
+                            shaped_at: null,
+                            shaped_by: null,
+                            shaping_attempts: null,
+                            shaping_last_attempt: null,
+                            shaping_error: null,
+                            prepared_at: null,
+                            prepared_by: null,
+                            preparation_attempts: null,
+                            preparation_last_attempt: null,
+                            preparation_error: null,
+                            approved_at: null,
+                            approved_kind: null,
+                            approved_outcome: null,
+                            approved_target: null,
+                            skipped_at: null,
+                        },
+                        `inbox review: ${path} -> shape again`,
+                        true
+                    );
+                    item.status = 'captured';
+                    item.proposal = null;
+                    item.feedback = feedback;
+                    item.attempts = 0;
+                    item.error = '';
+                }
+                render();
+            } catch (error) {
+                alert(error instanceof Error ? error.message : 'Could not update this capture.');
+                setBusy(path, false);
+            }
+        })();
+    };
 }
 
 export async function showInboxReview(pat: string, paths: string[]): Promise<void> {
-  const breadcrumb = document.querySelector<HTMLParagraphElement>('#breadcrumb')!;
-  const updated = document.querySelector<HTMLElement>('#last-updated')!;
-  const editLink = document.querySelector<HTMLAnchorElement>('#edit-link')!;
-  const complete = document.querySelector<HTMLButtonElement>('#complete-btn')!;
-  const content = document.querySelector<HTMLElement>('#content')!;
+    const breadcrumb = document.querySelector<HTMLParagraphElement>('#breadcrumb')!;
+    const updated = document.querySelector<HTMLElement>('#last-updated')!;
+    const editLink = document.querySelector<HTMLAnchorElement>('#edit-link')!;
+    const complete = document.querySelector<HTMLButtonElement>('#complete-btn')!;
+    const content = document.querySelector<HTMLElement>('#content')!;
 
-  breadcrumb.textContent = 'inbox review';
-  updated.textContent = '';
-  editLink.hidden = true;
-  complete.hidden = true;
-  document.querySelector<HTMLElement>('.graph-link')?.classList.remove('active');
-  document.querySelector<HTMLElement>('.triage-link')?.classList.add('active');
-  document.querySelectorAll<HTMLElement>('#tree .tree-item.active').forEach((entry) => entry.classList.remove('active'));
-  content.classList.remove('doc', 'graph-view', 'triage-view');
-  content.classList.add('inbox-review-view');
-  content.innerHTML = '<p class="hint">Loading your review queue…</p>';
+    breadcrumb.textContent = 'inbox review';
+    updated.textContent = '';
+    editLink.hidden = true;
+    complete.hidden = true;
+    document.querySelector<HTMLElement>('.graph-link')?.classList.remove('active');
+    document.querySelector<HTMLElement>('.triage-link')?.classList.add('active');
+    document.querySelectorAll<HTMLElement>('#tree .tree-item.active').forEach((entry) => entry.classList.remove('active'));
+    content.classList.remove('doc', 'graph-view', 'triage-view');
+    content.classList.add('inbox-review-view');
+    content.innerHTML = '<p class="hint">Loading your review queue…</p>';
 
-  try {
-    const { items, missingPaths } = await buildQueue(pat, paths);
-    missingPaths.forEach((path) => {
-      const index = paths.indexOf(path);
-      if (index !== -1) paths.splice(index, 1);
-    });
-    const render = () => {
-      content.innerHTML = renderReview(items);
-      wireReviewActions(pat, items, render);
-      document.querySelector('.content-column')?.scrollTo(0, 0);
-    };
-    render();
-  } catch (error) {
-    content.innerHTML = `<div class="review-empty"><strong>Could not build the review queue.</strong><span>${escapeHtml(
-      error instanceof Error ? error.message : 'Unknown error'
-    )}</span><button type="button" class="review-btn review-btn-primary" id="review-retry">Retry</button></div>`;
-    document.querySelector<HTMLButtonElement>('#review-retry')!.onclick = () => void showInboxReview(pat, paths);
-  }
+    try {
+        const { items, missingPaths } = await buildQueue(pat, paths);
+        missingPaths.forEach((path) => {
+            const index = paths.indexOf(path);
+            if (index !== -1) paths.splice(index, 1);
+        });
+        const render = () => {
+            content.innerHTML = renderReview(items);
+            wireReviewActions(pat, items, render);
+            document.querySelector('.content-column')?.scrollTo(0, 0);
+        };
+        render();
+    } catch (error) {
+        content.innerHTML = `<div class="review-empty"><strong>Could not build the review queue.</strong><span>${escapeHtml(
+            error instanceof Error ? error.message : 'Unknown error'
+        )}</span><button type="button" class="review-btn review-btn-primary" id="review-retry">Retry</button></div>`;
+        document.querySelector<HTMLButtonElement>('#review-retry')!.onclick = () => void showInboxReview(pat, paths);
+    }
 }

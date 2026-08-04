@@ -183,7 +183,7 @@
   transition: transform 0.12s ease;
 }
 
-.tree-folder[open] > summary::before {
+.tree-folder[open]>summary::before {
   transform: rotate(90deg);
 }
 
@@ -242,6 +242,7 @@
     transform: translateX(28px);
     opacity: 0;
   }
+
   to {
     transform: translateX(0);
     opacity: 1;
@@ -253,6 +254,7 @@
     transform: translateX(-28px);
     opacity: 0;
   }
+
   to {
     transform: translateX(0);
     opacity: 1;
@@ -908,10 +910,21 @@
   text-transform: uppercase;
 }
 
-.review-kind-idea { color: var(--accent-blue); }
-.review-kind-task { color: var(--accent-warm); }
-.review-kind-bookmark { color: var(--accent-pink); }
-.review-kind-unclear { color: var(--error); }
+.review-kind-idea {
+  color: var(--accent-blue);
+}
+
+.review-kind-task {
+  color: var(--accent-warm);
+}
+
+.review-kind-bookmark {
+  color: var(--accent-pink);
+}
+
+.review-kind-unclear {
+  color: var(--error);
+}
 
 .review-progress {
   color: var(--muted);
@@ -1133,6 +1146,26 @@
   font-size: 0.8rem;
 }
 
+.review-awaiting-group {
+  margin-top: 1.5rem;
+  padding: 0.85rem;
+  border: 1px solid var(--accent-warm);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent-warm) 7%, var(--bg-raised));
+}
+
+.review-awaiting-group .review-section-title {
+  margin-top: 0;
+  color: var(--accent-warm);
+}
+
+.review-awaiting-help {
+  margin: 0 0 0.65rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
 .review-workflow-help a {
   text-decoration: none;
 }
@@ -1147,7 +1180,8 @@
 }
 
 .review-compact-card,
-.review-completed-card {
+.review-completed-card,
+.review-awaiting-card {
   padding: 0.7rem 0.8rem;
   border: 1px solid var(--border);
   border-radius: 7px;
@@ -1155,12 +1189,14 @@
 }
 
 .review-compact-card strong,
-.review-completed-card strong {
+.review-completed-card strong,
+.review-awaiting-card strong {
   font-size: 0.84rem;
 }
 
 .review-compact-card p,
-.review-completed-card p {
+.review-completed-card p,
+.review-awaiting-card p {
   margin: 0.25rem 0 0;
   color: var(--muted);
   font-size: 0.76rem;
@@ -1519,5 +1555,27 @@
 
   body.sidebar-open .top-controls {
     z-index: 5;
+  }
+}
+
+.review-awaiting-card {
+  border-color: color-mix(in srgb, var(--accent-warm) 55%, var(--border));
+}
+
+.review-awaiting-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.review-awaiting-actions .review-source-link {
+  margin-top: 0;
+}
+
+@media (max-width: 680px) {
+  .review-awaiting-actions {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }

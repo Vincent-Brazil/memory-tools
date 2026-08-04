@@ -47,6 +47,11 @@ shaping again. Discard removes the capture from the active queue but retains it 
 Approval records a concrete outcome; it does not pretend a later Memory,
 Cockpit, or agent execution has already happened.
 
+The primary button therefore says **Approve for filing/handoff**, not that filing has
+already happened. Approved captures remain visible in an expanded **Approved, awaiting
+follow-through** queue, with their full shaped proposal intact, until an executor writes the
+destination and marks the inbox item complete. They are not folded into Reviewed as if done.
+
 Pending captures link directly to the hosted Shape inbox workflow in GitHub Actions. The
 screen reports how many proposals are ready, how many raw captures are waiting for DeepSeek,
 and how many are blocked, so an empty ready queue is not confused with an empty inbox.
