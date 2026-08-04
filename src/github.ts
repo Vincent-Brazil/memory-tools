@@ -107,8 +107,9 @@ export interface MarkdownFile {
 }
 
 export async function fetchMarkdownTree(pat: string): Promise<MarkdownFile[]> {
-  const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/git/trees/${BRANCH}?recursive=1`, {
+  const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/git/trees/${BRANCH}?recursive=1&_=${Date.now()}`, {
     headers: authHeaders(pat),
+    cache: 'no-store',
   });
   if (!res.ok) {
     if (res.status === 401 || res.status === 403) {
@@ -121,8 +122,9 @@ export async function fetchMarkdownTree(pat: string): Promise<MarkdownFile[]> {
 }
 
 export async function fetchFileContent(pat: string, path: string): Promise<string> {
-  const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/contents/${encodeURIComponent(path)}?ref=${BRANCH}`, {
+  const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/contents/${encodeURIComponent(path)}?ref=${BRANCH}&_=${Date.now()}`, {
     headers: authHeaders(pat),
+    cache: 'no-store',
   });
   if (!res.ok) {
     if (res.status === 404) throw new Error(`Not found in memory: ${path}`);

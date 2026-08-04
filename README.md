@@ -32,7 +32,7 @@ Capture-time guesses do not decide whether something is an idea, task, or bookma
 
 ### Inbox review
 
-A bounded DeepSeek job in the Memory repository prepares raw captures into structured
+A bounded DeepSeek job in the Memory repository shapes raw captures into structured
 proposals. The review screen shows one proposal at a time with:
 
 - inferred kind: idea, task, bookmark, or unclear
@@ -43,10 +43,15 @@ proposals. The review screen shows one proposal at a time with:
 
 Available actions are **Approve**, **Change**, **Skip for now**, and **Discard**. Change
 stores human feedback, removes the generated proposal, and queues the original capture for
-preparation again. Approval records a concrete outcome; it does not pretend a later Memory,
+shaping again. Discard removes the capture from the active queue but retains it for recovery.
+Approval records a concrete outcome; it does not pretend a later Memory,
 Cockpit, or agent execution has already happened.
 
-Pending captures link directly to the hosted Prepare inbox workflow in GitHub Actions.
+Pending captures link directly to the hosted Shape inbox workflow in GitHub Actions. The
+screen reports how many proposals are ready, how many raw captures are waiting for DeepSeek,
+and how many are blocked, so an empty ready queue is not confused with an empty inbox.
+DeepSeek shapes at most five captures in the daily run; reviewing one proposal does not
+automatically shape the remaining backlog.
 
 ### Viewer and Graph
 

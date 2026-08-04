@@ -342,7 +342,7 @@ function shell(): string {
           ${renderSettingsWidget()}
         </div>
         <div class="tree-home">
-          <a href="#/triage" class="tree-item triage-link">&#9998; triage</a>
+          <a href="#/triage" class="tree-item triage-link">&#9998; inbox review</a>
           <a href="#/graph" class="tree-item graph-link">&#9711; graph</a>
         </div>
         <input id="filter-input" class="sidebar-search" type="search" placeholder="Search…" autocomplete="off" />

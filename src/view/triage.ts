@@ -1,6 +1,5 @@
 import { marked } from 'marked';
 import {
-  deleteInboxFile,
   fetchFileContent,
   githubInboxWorkflowUrl,
   updateFileContent,
@@ -61,6 +60,11 @@ interface ReviewItem {
   approvedTarget: string;
 }
 
+interface QueueLoadResult {
+  items: ReviewItem[];
+  missingPaths: string[];
+}
+
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => {
     const entities: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -80,7 +84,7 @@ function decodeFlatScalar(value: string): string {
   return trimmed.replace(/^'|'$/g, '');
 }
 
-function parseFrontmatter(raw: string): { meta: Record<string, string>; body: string } {
+export function parseFrontmatter(raw: string): { meta: Record<string, string>; body: string } {
   const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
   if (!match) return { meta: {}, body: raw };
   const meta: Record<string, string> = {};
@@ -135,15 +139,20 @@ function parseProposal(body: string): ReviewProposal | null {
   }
 }
 
-async function buildQueue(pat: string, paths: string[]): Promise<ReviewItem[]> {
+export async function buildQueue(
+  pat: string,
+  paths: string[],
+  fetchContent: (pat: string, path: string) => Promise<string> = fetchFileContent
+): Promise<QueueLoadResult> {
   const inboxPaths = paths.filter((path) => path.startsWith('inbox/') && path !== 'inbox/README.md');
   const items: ReviewItem[] = [];
+  const missingPaths: string[] = [];
   let index = 0;
   const worker = async () => {
     while (index < inboxPaths.length) {
       const path = inboxPaths[index++];
       try {
-        const raw = await fetchFileContent(pat, path);
+        const raw = await fetchContent(pat, path);
         const { meta, body } = parseFrontmatter(raw);
         items.push({
           path,
@@ -152,13 +161,17 @@ async function buildQueue(pat: string, paths: string[]): Promise<ReviewItem[]> {
           status: meta.status || 'captured',
           original: originalText(body),
           proposal: parseProposal(body),
-          attempts: Number(meta.preparation_attempts) || 0,
-          error: meta.preparation_error ?? '',
+          attempts: Number(meta.shaping_attempts ?? meta.preparation_attempts) || 0,
+          error: meta.shaping_error ?? meta.preparation_error ?? '',
           feedback: meta.review_feedback ?? '',
           approvedOutcome: meta.approved_outcome ?? '',
           approvedTarget: meta.approved_target ?? '',
         });
       } catch (error) {
+        if (error instanceof Error && error.message.startsWith('Not found in memory:')) {
+          missingPaths.push(path);
+          continue;
+        }
         items.push({
           path,
           captured: '',
@@ -176,7 +189,10 @@ async function buildQueue(pat: string, paths: string[]): Promise<ReviewItem[]> {
     }
   };
   await Promise.all(Array.from({ length: FETCH_CONCURRENCY }, worker));
-  return items.sort((left, right) => left.captured.localeCompare(right.captured));
+  return {
+    items: items.sort((left, right) => left.captured.localeCompare(right.captured)),
+    missingPaths,
+  };
 }
 
 function renderOriginal(item: ReviewItem): string {
@@ -205,10 +221,10 @@ function renderEvidence(proposal: ReviewProposal): string {
 function renderChangeForm(item: ReviewItem): string {
   return `<div class="review-change" data-change-for="${escapeHtml(item.path)}" hidden>
     <label>What is wrong or missing?
-      <textarea class="review-feedback" rows="3" placeholder="Add the context DeepSeek needs to prepare this again.">${escapeHtml(item.feedback)}</textarea>
+      <textarea class="review-feedback" rows="3" placeholder="Add the context DeepSeek needs to shape this again.">${escapeHtml(item.feedback)}</textarea>
     </label>
     <div class="review-change-actions">
-      <button type="button" class="review-btn review-btn-primary review-action" data-action="submit-change" data-path="${escapeHtml(item.path)}">Prepare again</button>
+      <button type="button" class="review-btn review-btn-primary review-action" data-action="submit-change" data-path="${escapeHtml(item.path)}">Shape again</button>
       <button type="button" class="review-btn review-action" data-action="cancel-change" data-path="${escapeHtml(item.path)}">Cancel</button>
     </div>
   </div>`;
@@ -257,10 +273,10 @@ function renderReady(item: ReviewItem, remaining: number): string {
 
 function renderPendingItem(item: ReviewItem, attention = false): string {
   const message = attention
-    ? escapeHtml(item.error || 'The proposal is missing or invalid and needs another preparation attempt.')
+    ? escapeHtml(item.error || 'The proposal is missing or invalid and needs to be shaped again.')
     : item.feedback
-      ? `Waiting to be prepared again with your note: ${escapeHtml(item.feedback)}`
-      : 'Waiting for preparation.';
+      ? `Waiting to be shaped again with your note: ${escapeHtml(item.feedback)}`
+      : 'Waiting for DeepSeek to shape it.';
   return `<li class="review-compact-card" data-path="${escapeHtml(item.path)}">
     <div><strong>${escapeHtml(item.original || item.path)}</strong><p>${message}</p></div>
     <div class="review-compact-actions">
@@ -273,29 +289,31 @@ function renderPendingItem(item: ReviewItem, attention = false): string {
 }
 
 function renderCompletedItem(item: ReviewItem): string {
-  const skipped = item.status === 'skipped';
-  const receipt = skipped
+  const receipt = item.status === 'skipped'
     ? 'Skipped for now.'
-    : `Approved: ${item.approvedOutcome}${item.approvedTarget ? ` → ${item.approvedTarget}` : ''}. Awaiting execution.`;
+    : item.status === 'discarded'
+      ? 'Discarded. The original capture is retained and can be restored.'
+      : `Approved: ${item.approvedOutcome}${item.approvedTarget ? ` → ${item.approvedTarget}` : ''}. Awaiting execution.`;
   return `<li class="review-completed-card" data-path="${escapeHtml(item.path)}">
     <div><strong>${escapeHtml(item.original || item.path)}</strong><p>${escapeHtml(receipt)}</p></div>
-    <button type="button" class="review-btn review-action" data-action="restore" data-path="${escapeHtml(item.path)}">Return to review</button>
+    <button type="button" class="review-btn review-action" data-action="restore" data-path="${escapeHtml(item.path)}">${item.status === 'discarded' ? 'Restore capture' : 'Return to review'}</button>
   </li>`;
 }
 
-function renderReview(items: ReviewItem[]): string {
+export function renderReview(items: ReviewItem[]): string {
   const ready = items.filter((item) => item.status === 'ready' && item.proposal);
   const attention = items.filter((item) => item.status === 'needs_attention' || (item.status === 'ready' && !item.proposal));
   const pending = items.filter((item) => item.status === 'captured');
-  const completed = items.filter((item) => item.status === 'approved' || item.status === 'skipped');
+  const completed = items.filter((item) => item.status === 'approved' || item.status === 'skipped' || item.status === 'discarded');
+  const activeTotal = ready.length + attention.length + pending.length;
   const workflowUrl = githubInboxWorkflowUrl();
   const sections: string[] = [
-    `<header class="review-page-header"><h1>Inbox review</h1><p>Review one shaped proposal at a time. Nothing reaches Memory or Cockpit until you approve it.</p></header>`,
+    `<header class="review-page-header"><h1>Inbox review</h1><p>Review one shaped proposal at a time. ${ready.length} ready now, ${pending.length} waiting for DeepSeek, ${attention.length} blocked, ${activeTotal} active in total.</p></header>`,
   ];
   if (ready.length) {
     sections.push(`<h3 class="review-section-title">Ready for you</h3>${renderReady(ready[0], ready.length)}`);
   } else {
-    sections.push(`<div class="review-empty"><strong>No proposal is waiting for a decision.</strong><span>Raw captures stay safe until the preparation task runs.</span></div>`);
+    sections.push(`<div class="review-empty"><strong>No shaped proposal is waiting for a decision.</strong><span>${pending.length ? `${pending.length} raw capture${pending.length === 1 ? ' is' : 's are'} still waiting for DeepSeek.` : 'There is no active review backlog.'}</span></div>`);
   }
   if (attention.length) {
     sections.push(`<h3 class="review-section-title">Needs attention (${attention.length})</h3><ul class="review-compact-list">${attention
@@ -303,12 +321,12 @@ function renderReview(items: ReviewItem[]): string {
       .join('')}</ul>`);
   }
   if (pending.length) {
-    sections.push(`<details class="review-group" open><summary>Waiting to be prepared (${pending.length})</summary>
-      <p class="review-workflow-help">DeepSeek prepares up to five each morning. <a href="${workflowUrl}" target="_blank" rel="noopener noreferrer">Run Prepare inbox now on GitHub ↗</a></p>
+    sections.push(`<details class="review-group" open><summary>Waiting for DeepSeek (${pending.length})</summary>
+      <p class="review-workflow-help">DeepSeek shapes up to five each morning. The other captures have not been processed yet. <a href="${workflowUrl}" target="_blank" rel="noopener noreferrer">Run Shape inbox now on GitHub ↗</a></p>
       <ul class="review-compact-list">${pending.map((item) => renderPendingItem(item)).join('')}</ul></details>`);
   }
   if (completed.length) {
-    sections.push(`<details class="review-group"><summary>Approved or skipped (${completed.length})</summary><ul class="review-compact-list">${completed
+    sections.push(`<details class="review-group"><summary>Reviewed (${completed.length})</summary><ul class="review-compact-list">${completed
       .map(renderCompletedItem)
       .join('')}</ul></details>`);
   }
@@ -327,11 +345,6 @@ async function writeReviewState(
   await updateFileContent(pat, item.path, updated, message);
 }
 
-async function discardItem(pat: string, item: ReviewItem): Promise<void> {
-  if (!confirm(`Discard this capture?\n\n${item.original || item.path}\n\nThis deletes it from the inbox.`)) return;
-  await deleteInboxFile(pat, item.path);
-}
-
 function toggleChange(path: string, visible: boolean): void {
   const panel = document.querySelector<HTMLElement>(`.review-change[data-change-for="${CSS.escape(path)}"]`);
   if (!panel) return;
@@ -343,7 +356,7 @@ function setBusy(path: string, busy: boolean): void {
   document.querySelector<HTMLElement>(`[data-path="${CSS.escape(path)}"]`)?.classList.toggle('busy', busy);
 }
 
-function wireReviewActions(pat: string, items: ReviewItem[], refresh: () => Promise<void>): void {
+function wireReviewActions(pat: string, items: ReviewItem[], render: () => void): void {
   const content = document.querySelector<HTMLElement>('#content')!;
   const byPath = new Map(items.map((item) => [item.path, item]));
   content.onclick = (event) => {
@@ -362,7 +375,27 @@ function wireReviewActions(pat: string, items: ReviewItem[], refresh: () => Prom
       setBusy(path, true);
       try {
         if (action === 'discard') {
-          await discardItem(pat, item);
+          if (!confirm(`Discard this capture?\n\n${item.original || item.path}\n\nIt will leave the active queue but can be restored later.`)) {
+            setBusy(path, false);
+            return;
+          }
+          await writeReviewState(
+            pat,
+            item,
+            {
+              status: 'discarded',
+              discarded_at: new Date().toISOString(),
+              approved_at: null,
+              approved_kind: null,
+              approved_outcome: null,
+              approved_target: null,
+              skipped_at: null,
+            },
+            `inbox review: ${path} -> discarded`
+          );
+          item.status = 'discarded';
+          item.approvedOutcome = '';
+          item.approvedTarget = '';
         } else if (action === 'approve' && item.proposal) {
           const now = new Date().toISOString();
           await writeReviewState(
@@ -378,6 +411,9 @@ function wireReviewActions(pat: string, items: ReviewItem[], refresh: () => Prom
             },
             `inbox review: ${path} -> approved (${item.proposal.outcome})`
           );
+          item.status = 'approved';
+          item.approvedOutcome = item.proposal.outcome;
+          item.approvedTarget = item.proposal.target;
         } else if (action === 'skip') {
           await writeReviewState(
             pat,
@@ -385,28 +421,46 @@ function wireReviewActions(pat: string, items: ReviewItem[], refresh: () => Prom
             { status: 'skipped', skipped_at: new Date().toISOString(), approved_at: null, approved_outcome: null, approved_target: null },
             `inbox review: ${path} -> skipped`
           );
+          item.status = 'skipped';
         } else if (action === 'restore') {
+          const nextStatus = item.proposal ? 'ready' : 'captured';
           await writeReviewState(
             pat,
             item,
             {
-              status: 'ready',
+              status: nextStatus,
               approved_at: null,
               approved_kind: null,
               approved_outcome: null,
               approved_target: null,
               skipped_at: null,
+              discarded_at: null,
             },
-            `inbox review: ${path} -> ready`
+            `inbox review: ${path} -> ${nextStatus}`
           );
+          item.status = nextStatus;
+          item.approvedOutcome = '';
+          item.approvedTarget = '';
         } else if (action === 'retry') {
           await writeReviewState(
             pat,
             item,
-            { status: 'captured', preparation_attempts: null, preparation_last_attempt: null, preparation_error: null },
-            `inbox review: ${path} -> retry preparation`,
+            {
+              status: 'captured',
+              shaping_attempts: null,
+              shaping_last_attempt: null,
+              shaping_error: null,
+              preparation_attempts: null,
+              preparation_last_attempt: null,
+              preparation_error: null,
+            },
+            `inbox review: ${path} -> retry shaping`,
             true
           );
+          item.status = 'captured';
+          item.proposal = null;
+          item.attempts = 0;
+          item.error = '';
         } else if (action === 'submit-change') {
           const panel = document.querySelector<HTMLElement>(`.review-change[data-change-for="${CSS.escape(path)}"]`)!;
           const feedback = panel.querySelector<HTMLTextAreaElement>('.review-feedback')!.value.trim();
@@ -420,6 +474,11 @@ function wireReviewActions(pat: string, items: ReviewItem[], refresh: () => Prom
             {
               status: 'captured',
               review_feedback: feedback,
+              shaped_at: null,
+              shaped_by: null,
+              shaping_attempts: null,
+              shaping_last_attempt: null,
+              shaping_error: null,
               prepared_at: null,
               prepared_by: null,
               preparation_attempts: null,
@@ -431,11 +490,16 @@ function wireReviewActions(pat: string, items: ReviewItem[], refresh: () => Prom
               approved_target: null,
               skipped_at: null,
             },
-            `inbox review: ${path} -> prepare again`,
+            `inbox review: ${path} -> shape again`,
             true
           );
+          item.status = 'captured';
+          item.proposal = null;
+          item.feedback = feedback;
+          item.attempts = 0;
+          item.error = '';
         }
-        await refresh();
+        render();
       } catch (error) {
         alert(error instanceof Error ? error.message : 'Could not update this capture.');
         setBusy(path, false);
@@ -460,14 +524,20 @@ export async function showInboxReview(pat: string, paths: string[]): Promise<voi
   document.querySelectorAll<HTMLElement>('#tree .tree-item.active').forEach((entry) => entry.classList.remove('active'));
   content.classList.remove('doc', 'graph-view', 'triage-view');
   content.classList.add('inbox-review-view');
-  content.innerHTML = '<p class="hint">Preparing your review queue…</p>';
+  content.innerHTML = '<p class="hint">Loading your review queue…</p>';
 
   try {
-    const items = await buildQueue(pat, paths);
-    content.innerHTML = renderReview(items);
-    const refresh = () => showInboxReview(pat, paths);
-    wireReviewActions(pat, items, refresh);
-    document.querySelector('.content-column')?.scrollTo(0, 0);
+    const { items, missingPaths } = await buildQueue(pat, paths);
+    missingPaths.forEach((path) => {
+      const index = paths.indexOf(path);
+      if (index !== -1) paths.splice(index, 1);
+    });
+    const render = () => {
+      content.innerHTML = renderReview(items);
+      wireReviewActions(pat, items, render);
+      document.querySelector('.content-column')?.scrollTo(0, 0);
+    };
+    render();
   } catch (error) {
     content.innerHTML = `<div class="review-empty"><strong>Could not build the review queue.</strong><span>${escapeHtml(
       error instanceof Error ? error.message : 'Unknown error'
