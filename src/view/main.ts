@@ -1329,11 +1329,32 @@ interface TriageItem {
   captured: string | null;
   status: string;
   enrichmentAttempts: number;
+  original: string;
   stages: EnrichmentStages | null;
   recommendation: Decision | null;
   suggestedTarget: string | null;
   decision: string | null;
   target: string | null;
+}
+
+// One-line meaning for each disposition — shown once as a legend rather
+// than per-button tooltips, since Capture (and this Viewer, read on a
+// phone as often as a desktop) is mobile-first and hover-only titles
+// never reach a touch user.
+const DECISION_HINTS: Record<Decision, string> = {
+  route: 'file into an existing page — pick where below',
+  idea: 'park in ideas/ — not committed to yet',
+  research: 'not enough here to decide — needs more digging first',
+  thread: 'log as an open tangent, not a discrete project',
+  bin: 'discard — not worth pursuing',
+};
+
+// What Tom originally captured, before any enrichment — the thing every
+// other section of the card is commentary ON, so it has to stay visible
+// underneath that commentary rather than being implied by it.
+function splitOriginalText(body: string): string {
+  const marker = body.indexOf('## Enrichment (auto,');
+  return (marker === -1 ? body : body.slice(0, marker)).trim();
 }
 
 // The ## Enrichment section's stage headings are consistent
@@ -1412,6 +1433,7 @@ async function buildTriageQueue(pat: string, paths: string[]): Promise<TriageIte
           captured: meta.captured ?? null,
           status: meta.status || 'captured',
           enrichmentAttempts: Number(meta.enrichment_attempts) || 0,
+          original: splitOriginalText(body),
           stages,
           recommendation: stages ? guessRecommendation(stages.suggest) : null,
           suggestedTarget: stages ? guessTargetPath(stages.suggest) : null,
@@ -1425,6 +1447,7 @@ async function buildTriageQueue(pat: string, paths: string[]): Promise<TriageIte
           captured: null,
           status: 'captured',
           enrichmentAttempts: 0,
+          original: '',
           stages: null,
           recommendation: null,
           suggestedTarget: null,
@@ -1451,18 +1474,23 @@ function renderStageDetail(stages: EnrichmentStages): string {
       ${section('2. Extract', stages.extract)}
       ${section('3. Relate', stages.relate)}
       ${section('4. Develop', stages.develop)}
+      ${section('5. Suggest', stages.suggest)}
     </details>
   `;
+}
+
+function renderOriginal(item: TriageItem): string {
+  return `<div class="triage-original">${marked.parse(item.original || '*(empty capture)*', { async: false })}</div>`;
 }
 
 function renderDecisionRow(item: TriageItem): string {
   const targetField =
     item.recommendation === 'route' || item.suggestedTarget
-      ? `<label class="triage-target-field">target <input type="text" class="triage-target-input" data-path="${item.path}" value="${item.suggestedTarget ?? ''}" placeholder="projects/example.md" /></label>`
+      ? `<label class="triage-target-field" title="only used for a route decision — the page this should be filed into">target (route only) <input type="text" class="triage-target-input" data-path="${item.path}" value="${item.suggestedTarget ?? ''}" placeholder="projects/example.md" /></label>`
       : '';
   const buttons = DECISIONS.map(
     (d) =>
-      `<button type="button" class="triage-btn triage-btn-decide${d === item.recommendation ? ' triage-btn-recommended' : ''}" data-path="${item.path}" data-decision="${d}">${d}</button>`
+      `<button type="button" class="triage-btn triage-btn-decide${d === item.recommendation ? ' triage-btn-recommended' : ''}" data-path="${item.path}" data-decision="${d}" title="${DECISION_HINTS[d]}">${d}</button>`
   ).join('');
   return `<div class="triage-decision-row">${buttons}</div>${targetField}`;
 }
@@ -1476,6 +1504,7 @@ function renderReadyItem(item: TriageItem): string {
         ${typeLabel}
         <a href="#/${encodeURIComponent(item.path)}" class="triage-path">${item.path}</a>
       </div>
+      ${renderOriginal(item)}
       <div class="triage-suggest">${suggestHtml}</div>
       ${item.stages ? renderStageDetail(item.stages) : ''}
       ${renderDecisionRow(item)}
@@ -1491,6 +1520,7 @@ function renderStuckItem(item: TriageItem): string {
         <a href="#/${encodeURIComponent(item.path)}" class="triage-path">${item.path}</a>
         <span class="triage-age">attempt ${item.enrichmentAttempts}${item.enrichmentAttempts >= 3 ? ' — gave up, needs a manual look' : ''}</span>
       </div>
+      ${renderOriginal(item)}
     </li>
   `;
 }
@@ -1502,6 +1532,7 @@ function renderDecidedItem(item: TriageItem): string {
         ${item.type ? `<span class="triage-type triage-type-${item.type}">${item.type}</span>` : ''}
         <a href="#/${encodeURIComponent(item.path)}" class="triage-path">${item.path}</a>
       </div>
+      ${renderOriginal(item)}
       <p class="triage-status">decided: ${item.decision}${item.target ? ` &rarr; ${item.target}` : ''}</p>
       <button type="button" class="triage-btn triage-btn-undo" data-path="${item.path}" data-decision="undo">undo</button>
     </li>
@@ -1516,10 +1547,12 @@ function renderTriageView(items: TriageItem[]): string {
 
   if (!items.length) return '<p class="hint">Inbox is empty — nothing to triage.</p>';
 
+  const legend = `<p class="triage-legend">${DECISIONS.map((d) => `<strong>${d}</strong> = ${DECISION_HINTS[d]}`).join(' &middot; ')}</p>`;
+
   const sections: string[] = [];
   sections.push(
     ready.length
-      ? `<h3 class="triage-section-title">ready to decide (${ready.length})</h3><ul class="triage-list">${ready.map(renderReadyItem).join('')}</ul>`
+      ? `<h3 class="triage-section-title">ready to decide (${ready.length})</h3>${legend}<ul class="triage-list">${ready.map(renderReadyItem).join('')}</ul>`
       : '<p class="hint">Nothing enriched yet — check back once the inbox-review workflow has run.</p>'
   );
   if (stuck.length) {

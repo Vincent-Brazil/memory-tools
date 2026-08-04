@@ -921,13 +921,6 @@
   margin-left: auto;
 }
 
-.triage-snippet {
-  color: var(--fg);
-  font-size: 0.88rem;
-  margin: 0 0 0.6rem;
-  line-height: 1.5;
-}
-
 .triage-status {
   margin: 0 0 0.6rem;
   color: var(--success);
@@ -973,11 +966,48 @@
   margin-top: 0;
 }
 
+/* Once per section, not per card — a hover-only title on every button
+   would repeat five times per item and never reach a touch user anyway. */
+.triage-legend {
+  margin: 0 0 1rem;
+  font-size: 0.76rem;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.triage-legend strong {
+  color: var(--fg);
+  text-transform: capitalize;
+}
+
+/* What Tom actually captured — gets a left rule and its own background so
+   it visually separates from the AI's commentary right below it. */
+.triage-original {
+  margin: 0 0 0.7rem;
+  padding: 0.55rem 0.75rem;
+  background: var(--bg);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  font-size: 0.88rem;
+}
+
+.triage-original p:first-child {
+  margin-top: 0;
+}
+
+.triage-original p:last-child {
+  margin-bottom: 0;
+}
+
 .triage-suggest {
   color: var(--fg);
   font-size: 0.88rem;
   line-height: 1.5;
   margin: 0 0 0.7rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .triage-suggest p:first-child {
