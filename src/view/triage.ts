@@ -325,8 +325,8 @@ function renderPendingItem(item: ReviewItem, attention = false): string {
 
 function renderCompletedItem(item: ReviewItem): string {
     const receipt = item.status === 'skipped'
-    ? 'Skipped for now.'
-    : 'Discarded. The original capture is retained and can be restored.';
+        ? 'Skipped for now.'
+        : 'Discarded. The original capture is retained and can be restored.';
     return `<li class="review-completed-card" data-path="${escapeHtml(item.path)}">
     <div><strong>${escapeHtml(item.original || item.path)}</strong><p>${escapeHtml(receipt)}</p></div>
     <button type="button" class="review-btn review-action" data-action="restore" data-path="${escapeHtml(item.path)}">${item.status === 'discarded' ? 'Restore capture' : 'Return to review'}</button>
@@ -354,7 +354,7 @@ export function renderReview(items: ReviewItem[]): string {
     const parked = items.filter((item) => item.status === 'skipped' || item.status === 'discarded');
     const workflowUrl = githubInboxWorkflowUrl();
     const sections: string[] = [
-            `<header class="review-page-header"><h1>Inbox review</h1><p>Review one shaped proposal at a time. ${ready.length} to review, ${pending.length} waiting for DeepSeek, ${approved.length} approved and awaiting follow-through, ${attention.length} blocked.</p></header>`,
+        `<header class="review-page-header"><h1>Inbox review</h1><p>Review one shaped proposal at a time. ${ready.length} to review, ${pending.length} waiting for DeepSeek, ${approved.length} approved and awaiting follow-through, ${attention.length} blocked.</p></header>`,
     ];
     if (ready.length) {
         sections.push(`<h3 class="review-section-title">Ready for you</h3>${renderReady(ready[0], ready.length)}`);
@@ -563,13 +563,13 @@ export async function showInboxReview(pat: string, paths: string[]): Promise<voi
     const breadcrumb = document.querySelector<HTMLParagraphElement>('#breadcrumb')!;
     const updated = document.querySelector<HTMLElement>('#last-updated')!;
     const editLink = document.querySelector<HTMLAnchorElement>('#edit-link')!;
-    const complete = document.querySelector<HTMLButtonElement>('#complete-btn')!;
+    const inboxAction = document.querySelector<HTMLButtonElement>('#inbox-action-btn')!;
     const content = document.querySelector<HTMLElement>('#content')!;
 
     breadcrumb.textContent = 'inbox review';
     updated.textContent = '';
     editLink.hidden = true;
-    complete.hidden = true;
+    inboxAction.hidden = true;
     document.querySelector<HTMLElement>('.graph-link')?.classList.remove('active');
     document.querySelector<HTMLElement>('.triage-link')?.classList.add('active');
     document.querySelectorAll<HTMLElement>('#tree .tree-item.active').forEach((entry) => entry.classList.remove('active'));

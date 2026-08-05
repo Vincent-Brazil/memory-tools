@@ -17,12 +17,98 @@ export function githubInboxWorkflowUrl(): string {
   return `https://github.com/${OWNER}/${REPO}/actions/workflows/inbox-review.yml`;
 }
 
+const INBOX_PROCESS_WORKFLOW = 'inbox-review.yml';
+
+export interface InboxProcessRun {
+  id: number;
+  status: 'queued' | 'in_progress' | 'completed' | 'waiting' | 'requested' | 'pending';
+  conclusion: string | null;
+  htmlUrl: string;
+  createdAt: string;
+}
+
 function authHeaders(pat: string) {
   return {
     Authorization: `Bearer ${pat}`,
     Accept: 'application/vnd.github+json',
     'X-GitHub-Api-Version': '2022-11-28',
   };
+}
+
+async function githubError(res: Response, fallback: string): Promise<Error> {
+  const body = (await res.json().catch(() => ({}))) as { message?: string };
+  if (res.status === 401 || res.status === 403) {
+    return new Error('GitHub rejected this action. Check that the token has Actions read/write access as well as Contents access.');
+  }
+  return new Error(body.message || fallback);
+}
+
+function parseProcessRun(value: {
+  id: number;
+  status: InboxProcessRun['status'];
+  conclusion: string | null;
+  html_url: string;
+  created_at: string;
+}): InboxProcessRun {
+  return {
+    id: value.id,
+    status: value.status,
+    conclusion: value.conclusion,
+    htmlUrl: value.html_url,
+    createdAt: value.created_at,
+  };
+}
+
+export async function fetchLatestInboxProcessRun(pat: string): Promise<InboxProcessRun | null> {
+  const res = await fetch(
+    `https://api.github.com/repos/${OWNER}/${REPO}/actions/workflows/${INBOX_PROCESS_WORKFLOW}/runs?event=workflow_dispatch&branch=${BRANCH}&per_page=1&_=${Date.now()}`,
+    { headers: authHeaders(pat), cache: 'no-store' }
+  );
+  if (!res.ok) throw await githubError(res, `Could not check processing runs (${res.status})`);
+  const data = (await res.json()) as {
+    workflow_runs: Parameters<typeof parseProcessRun>[0][];
+  };
+  return data.workflow_runs[0] ? parseProcessRun(data.workflow_runs[0]) : null;
+}
+
+export async function fetchInboxProcessRun(pat: string, runId: number): Promise<InboxProcessRun> {
+  const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/actions/runs/${runId}?_=${Date.now()}`, {
+    headers: authHeaders(pat),
+    cache: 'no-store',
+  });
+  if (!res.ok) throw await githubError(res, `Could not check processing run (${res.status})`);
+  return parseProcessRun((await res.json()) as Parameters<typeof parseProcessRun>[0]);
+}
+
+export async function startInboxProcessing(
+  pat: string,
+  options: { item?: string; limit?: number }
+): Promise<InboxProcessRun> {
+  const startedAfter = Date.now() - 2_000;
+  const res = await fetch(
+    `https://api.github.com/repos/${OWNER}/${REPO}/actions/workflows/${INBOX_PROCESS_WORKFLOW}/dispatches`,
+    {
+      method: 'POST',
+      headers: { ...authHeaders(pat), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ref: BRANCH,
+        inputs: {
+          limit: String(options.limit ?? 5),
+          item: options.item ?? '',
+        },
+      }),
+    }
+  );
+  if (!res.ok) throw await githubError(res, `Could not start processing (${res.status})`);
+
+  // Workflow dispatch returns 204 rather than a run ID. Find the new run,
+  // allowing a short delay while GitHub creates it.
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, attempt ? 1_500 : 700));
+    const run = await fetchLatestInboxProcessRun(pat);
+    if (run && new Date(run.createdAt).getTime() >= startedAfter) return run;
+  }
+  throw new Error('Processing was requested, but GitHub has not exposed the run yet. Open Actions to check it.');
 }
 
 function slugify(text: string): string {
@@ -135,34 +221,6 @@ export async function fetchFileContent(pat: string, path: string): Promise<strin
   }
   const data = (await res.json()) as { content: string };
   return fromBase64Utf8(data.content);
-}
-
-export async function deleteInboxFile(pat: string, path: string): Promise<void> {
-  const getRes = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/contents/${encodeURIComponent(path)}?ref=${BRANCH}`, {
-    headers: authHeaders(pat),
-  });
-  if (!getRes.ok) {
-    if (getRes.status === 404) throw new Error('Already gone from inbox.');
-    throw new Error(`Could not look up file before removing it (${getRes.status})`);
-  }
-  const { sha } = (await getRes.json()) as { sha: string };
-
-  const delRes = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/contents/${encodeURIComponent(path)}`, {
-    method: 'DELETE',
-    headers: { ...authHeaders(pat), 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      message: `complete: remove ${path} from inbox`,
-      sha,
-      branch: BRANCH,
-    }),
-  });
-  if (!delRes.ok) {
-    if (delRes.status === 401 || delRes.status === 403) {
-      throw new Error('Token rejected — check it still has write access to the memory repo.');
-    }
-    const body = (await delRes.json().catch(() => ({}))) as { message?: string };
-    throw new Error(body.message || `GitHub API error ${delRes.status}`);
-  }
 }
 
 export async function updateFileContent(pat: string, path: string, content: string, message: string): Promise<void> {

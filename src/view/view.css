@@ -388,22 +388,22 @@
   content: '↗ ';
 }
 
-.complete-btn {
+.inbox-action-btn {
   background: none;
   border: 1px solid var(--border);
   border-radius: 4px;
-  color: var(--success);
+  color: var(--accent);
   font-family: var(--mono);
   font-size: 0.75rem;
   padding: 0.2rem 0.55rem;
   cursor: pointer;
 }
 
-.complete-btn:hover {
-  border-color: var(--success);
+.inbox-action-btn:hover {
+  border-color: var(--accent);
 }
 
-.complete-btn:disabled {
+.inbox-action-btn:disabled {
   opacity: 0.6;
   cursor: default;
 }

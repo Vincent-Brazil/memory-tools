@@ -7,14 +7,17 @@ import {
   fetchFileContent,
   fetchLastCommitDate,
   githubEditUrl,
-  deleteInboxFile,
+  startInboxProcessing,
+  fetchInboxProcessRun,
   configureRepo,
   type MarkdownFile,
+  type InboxProcessRun,
 } from '../github';
 import { getPat, clearPat, getRepo, clearRepo, renderSetupScreen, wireSetupForm } from '../shared/auth';
 import { getTheme, applyTheme } from '../shared/theme';
 import { renderSettingsWidget, wireSettingsWidget } from '../shared/settingsWidget';
 import { showInboxReview } from './triage';
+import { inboxPageActionFor, type InboxPageAction } from './inboxLifecycle';
 
 applyTheme(getTheme());
 
@@ -139,9 +142,9 @@ function renderMetaBar(meta: Record<string, string>, path: string): string {
   const isInbox = path.startsWith('inbox/');
   const fields: string[] = [];
 
-  const kind = meta.kind || meta.capture_hint || meta.type;
+  const kind = meta.kind;
   if (kind) {
-    fields.push(`<span class="meta-field">${isInbox ? 'capture hint' : 'type'} <span class="meta-value">${kind}</span></span>`);
+    fields.push(`<span class="meta-field">${isInbox ? 'kind' : 'type'} <span class="meta-value">${kind}</span></span>`);
   }
   if (meta.captured) {
     fields.push(`<span class="meta-field">captured <span class="meta-value">${formatDateTime(meta.captured)}</span></span>`);
@@ -191,17 +194,6 @@ function pushRecentPage(path: string) {
   renderRecentPagesSection();
 }
 
-function removeRecentPage(path: string) {
-  localStorage.setItem(RECENT_PAGES_KEY, JSON.stringify(loadRecentPages().filter((p) => p !== path)));
-  renderRecentPagesSection();
-}
-
-function removeFromTree(path: string) {
-  document.querySelectorAll<HTMLAnchorElement>(`.tree-item[data-path="${CSS.escape(path)}"]`).forEach((el) => el.remove());
-  const base = path.split('/').pop()!.replace(/\.md$/, '');
-  if (slugIndex.get(base) === path) slugIndex.delete(base);
-}
-
 function renderRecentPagesSection() {
   const el = document.querySelector<HTMLElement>('#recent-pages');
   if (!el) return;
@@ -211,8 +203,8 @@ function renderRecentPagesSection() {
         <summary>recent</summary>
         <div class="tree-folder-content">
           ${paths
-            .map((p) => `<a class="tree-item" href="#/${encodeURIComponent(p)}" data-path="${p}" title="${p}">${p.replace(/\.md$/, '')}</a>`)
-            .join('')}
+      .map((p) => `<a class="tree-item" href="#/${encodeURIComponent(p)}" data-path="${p}" title="${p}">${p.replace(/\.md$/, '')}</a>`)
+      .join('')}
         </div>
       </details>`
     : '';
@@ -357,7 +349,7 @@ function shell(): string {
           <div class="content-meta-right">
             <span id="last-updated" class="last-updated"></span>
             <a id="edit-link" class="edit-link" target="_blank" rel="noopener noreferrer">edit</a>
-            <button id="complete-btn" class="complete-btn" type="button" hidden>&#10003; complete</button>
+            <button id="inbox-action-btn" class="inbox-action-btn" type="button" hidden></button>
           </div>
         </div>
         <main id="content" class="doc"><p class="hint">Loading…</p></main>
@@ -464,7 +456,7 @@ function prefetchNeighbors(pat: string, path: string) {
     (p): p is string => Boolean(p) && !contentCache.has(p)
   );
   if (!neighbors.length) return;
-  const run = () => neighbors.forEach((p) => void getFileContent(pat, p).catch(() => {}));
+  const run = () => neighbors.forEach((p) => void getFileContent(pat, p).catch(() => { }));
   const ric = (window as typeof window & { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => void })
     .requestIdleCallback;
   if (ric) ric(run, { timeout: 2000 });
@@ -522,9 +514,7 @@ function wireShell(pat: string) {
 
   renderRecentPagesSection();
 
-  document.querySelector<HTMLButtonElement>('#complete-btn')!.addEventListener('click', () => {
-    void completeInboxItem(pat, currentPath());
-  });
+  document.querySelector<HTMLButtonElement>('#inbox-action-btn')!.addEventListener('click', () => void handleInboxPageAction(pat));
 
   const sidebar = document.querySelector<HTMLElement>('#sidebar')!;
   const backdrop = document.querySelector<HTMLElement>('#sidebar-backdrop')!;
@@ -667,26 +657,60 @@ function styleLabelBadges(container: HTMLElement) {
   });
 }
 
-async function completeInboxItem(pat: string, path: string) {
-  const confirmed = confirm(
-    `Remove this from inbox?\n\n${path}\n\nDo this once you've processed or promoted it elsewhere — it can't be undone from here.`
-  );
-  if (!confirmed) return;
+let inboxPageAction: { type: InboxPageAction; path: string } = { type: 'none', path: '' };
 
-  const completeBtn = document.querySelector<HTMLButtonElement>('#complete-btn')!;
-  completeBtn.disabled = true;
-  completeBtn.textContent = 'removing…';
+function configureInboxPageAction(path: string, meta: Record<string, string>) {
+  const button = document.querySelector<HTMLButtonElement>('#inbox-action-btn')!;
+  const action = inboxPageActionFor(path, meta.status || 'captured');
+  inboxPageAction = { type: action.type, path };
+  button.hidden = action.type === 'none';
+  button.disabled = false;
+  button.textContent = action.label;
+  button.title = action.description;
+}
 
+function runStatusText(run: InboxProcessRun): string {
+  if (run.status !== 'completed') return run.status === 'queued' ? 'Processing queued…' : 'Processing…';
+  return run.conclusion === 'success' ? 'Processed. Refreshing…' : `Processing ${run.conclusion || 'finished'}`;
+}
+
+async function waitForInboxProcessing(pat: string, run: InboxProcessRun, path: string): Promise<void> {
+  const button = document.querySelector<HTMLButtonElement>('#inbox-action-btn')!;
+  let current = run;
+  button.textContent = runStatusText(current);
+  while (current.status !== 'completed') {
+    await new Promise((resolve) => setTimeout(resolve, 3_000));
+    current = await fetchInboxProcessRun(pat, current.id);
+    if (currentPath() !== path) return;
+    button.textContent = runStatusText(current);
+  }
+  if (current.conclusion !== 'success') {
+    button.disabled = false;
+    button.textContent = 'Retry processing';
+    throw new Error(`Processing did not complete successfully. Check ${current.htmlUrl}`);
+  }
+  contentCache.delete(path);
+  await loadPage(pat, path);
+}
+
+async function handleInboxPageAction(pat: string) {
+  const { type, path } = inboxPageAction;
+  if (type === 'review' || type === 'approved' || type === 'parked') {
+    location.hash = '#/triage';
+    return;
+  }
+  if (type !== 'process' && type !== 'blocked') return;
+
+  const button = document.querySelector<HTMLButtonElement>('#inbox-action-btn')!;
+  button.disabled = true;
+  button.textContent = 'Starting processing…';
   try {
-    await deleteInboxFile(pat, path);
-    contentCache.delete(path);
-    removeFromTree(path);
-    removeRecentPage(path);
-    location.hash = '#/index.md';
+    const run = await startInboxProcessing(pat, { item: path.split('/').pop()! });
+    await waitForInboxProcessing(pat, run, path);
   } catch (err) {
-    alert(err instanceof Error ? err.message : 'Could not remove that file.');
-    completeBtn.disabled = false;
-    completeBtn.textContent = '✓ complete';
+    alert(err instanceof Error ? err.message : 'Could not process this item.');
+    button.disabled = false;
+    button.textContent = type === 'blocked' ? 'Retry processing' : 'Process this item';
   }
 }
 
@@ -695,14 +719,12 @@ async function loadPage(pat: string, path: string) {
   const breadcrumb = document.querySelector<HTMLParagraphElement>('#breadcrumb')!;
   const updatedEl = document.querySelector<HTMLElement>('#last-updated')!;
   const editLink = document.querySelector<HTMLAnchorElement>('#edit-link')!;
-  const completeBtn = document.querySelector<HTMLButtonElement>('#complete-btn')!;
+  const inboxActionBtn = document.querySelector<HTMLButtonElement>('#inbox-action-btn')!;
   breadcrumb.textContent = path;
   updatedEl.textContent = '';
   editLink.href = githubEditUrl(path);
   editLink.hidden = false;
-  completeBtn.hidden = !path.startsWith('inbox/');
-  completeBtn.disabled = false;
-  completeBtn.textContent = '✓ complete';
+  inboxActionBtn.hidden = true;
   content.classList.remove('graph-view', 'triage-view', 'inbox-review-view');
   content.classList.add('doc');
   content.innerHTML = '<p class="hint">Loading…</p>';
@@ -710,6 +732,7 @@ async function loadPage(pat: string, path: string) {
   try {
     const raw = await withRetry(() => getFileContent(pat, path));
     const { meta, body } = parseFrontmatter(raw);
+    configureInboxPageAction(path, meta);
     const withWikilinks = body.replace(/\[\[([a-zA-Z0-9\-_]+)\]\]/g, '[$1](wikilink:$1)');
     content.innerHTML = renderMetaBar(meta, path) + (await marked.parse(withWikilinks)) + '<div id="backlinks-slot"></div>';
     rewriteLinks(content, dirOf(path));
@@ -853,7 +876,17 @@ async function buildGraphData(pat: string, paths: string[]): Promise<{ nodes: Gr
           }
         }
 
-        const type = path.startsWith('inbox/') ? meta.kind || meta.capture_hint || meta.type || null : null;
+        const proposalKind = path.startsWith('inbox/')
+          ? body.match(/<!--\s*inbox-proposal:v2\s*\r?\n([\s\S]*?)\r?\n-->/)?.[1]
+          : undefined;
+        let type: string | null = null;
+        if (proposalKind) {
+          try {
+            type = (JSON.parse(proposalKind) as { kind?: string }).kind || null;
+          } catch {
+            type = null;
+          }
+        }
         nodes.set(path, { path, label: extractLabel(body), type, issues, suggestions: [], x: 0, y: 0 });
         outgoing.set(path, resolved.size);
         resolved.forEach((target) => {
@@ -1107,11 +1140,11 @@ function renderGraphToolbar(nodes: GraphNode[]): string {
         <summary>${flagged.length} data quality issue${flagged.length === 1 ? '' : 's'}</summary>
         <ul class="graph-issues-list">
           ${flagged
-            .map(
-              (n) =>
-                `<li><a href="#/${encodeURIComponent(n.path)}">${n.path}</a><span class="graph-issue-text">${n.issues.join('; ')}</span></li>`
-            )
-            .join('')}
+      .map(
+        (n) =>
+          `<li><a href="#/${encodeURIComponent(n.path)}">${n.path}</a><span class="graph-issue-text">${n.issues.join('; ')}</span></li>`
+      )
+      .join('')}
         </ul>
       </details>`
     : `<p class="graph-issues-clean">no data quality issues found</p>`;
@@ -1122,11 +1155,11 @@ function renderGraphToolbar(nodes: GraphNode[]): string {
         <summary>${suggested.length} inbox item${suggested.length === 1 ? '' : 's'} with suggested relations</summary>
         <ul class="graph-suggestions-list">
           ${suggested
-            .map(
-              (n) =>
-                `<li><a href="#/${encodeURIComponent(n.path)}">${n.path}</a><span class="graph-suggestion-text">related to ${n.suggestions.join('; ')}</span></li>`
-            )
-            .join('')}
+      .map(
+        (n) =>
+          `<li><a href="#/${encodeURIComponent(n.path)}">${n.path}</a><span class="graph-suggestion-text">related to ${n.suggestions.join('; ')}</span></li>`
+      )
+      .join('')}
         </ul>
       </details>`
     : '';
@@ -1221,13 +1254,13 @@ async function showGraphView(pat: string) {
   const breadcrumb = document.querySelector<HTMLParagraphElement>('#breadcrumb')!;
   const updatedEl = document.querySelector<HTMLElement>('#last-updated')!;
   const editLink = document.querySelector<HTMLAnchorElement>('#edit-link')!;
-  const completeBtn = document.querySelector<HTMLButtonElement>('#complete-btn')!;
+  const inboxActionBtn = document.querySelector<HTMLButtonElement>('#inbox-action-btn')!;
   const content = document.querySelector<HTMLElement>('#content')!;
 
   breadcrumb.textContent = 'graph';
   updatedEl.textContent = '';
   editLink.hidden = true;
-  completeBtn.hidden = true;
+  inboxActionBtn.hidden = true;
   updateActiveHighlight('graph');
   content.classList.remove('doc');
   content.classList.add('graph-view');

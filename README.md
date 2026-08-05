@@ -52,6 +52,12 @@ already happened. Approved captures remain visible in an expanded **Approved, aw
 follow-through** queue, with their full shaped proposal intact, until an executor writes the
 destination and marks the inbox item complete. They are not folded into Reviewed as if done.
 
+Opening an Inbox Markdown file directly uses the same lifecycle. A raw capture offers
+**Process this item**, which starts a one-item hosted run, polls it, and refreshes the page
+when the proposal is ready. A ready, parked, or approved item links back to **Inbox review**.
+The old **Complete** control was removed: it deleted the Inbox file and could make unfinished
+work look done.
+
 Pending captures link directly to the hosted Shape inbox workflow in GitHub Actions. The
 screen reports how many proposals are ready, how many raw captures are waiting for DeepSeek,
 and how many are blocked, so an empty ready queue is not confused with an empty inbox.
