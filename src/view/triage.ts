@@ -196,7 +196,7 @@ export async function buildQueue(
 
 function renderOriginal(item: ReviewItem): string {
     const original = item.original || '*(empty capture)*';
-    return `<blockquote class="review-original">${marked.parse(escapeHtml(original), { async: false })}</blockquote>`;
+    return `<section class="review-source"><h3>Your capture</h3><p>This is the original text. Processing never replaces it.</p><blockquote class="review-original">${marked.parse(escapeHtml(original), { async: false })}</blockquote></section>`;
 }
 
 function renderDetail(label: string, value: string): string {
@@ -275,19 +275,23 @@ function renderReady(item: ReviewItem, remaining: number): string {
     </header>
     <h2>${escapeHtml(proposal.title)}</h2>
     ${renderOriginal(item)}
-    <p class="review-summary">${escapeHtml(proposal.summary)}</p>
-    <div class="review-detail-grid">
-      ${renderDetail('Why it may matter', proposal.why_it_matters)}
-      ${renderDetail('Grounding', proposal.grounding)}
-      ${renderDetail('Viability', proposal.viability)}
-      ${renderDetail('Potential approach', proposal.approach)}
-      ${renderDetail('Definition of done', proposal.definition_of_done)}
-      ${renderDetail('Smallest next step', proposal.next_step)}
-      ${renderDetail('Biggest unknown', proposal.biggest_unknown)}
-      ${renderDetail('Clarifying question', proposal.clarifying_question)}
-      ${proposal.executor !== 'none' ? renderDetail('Suggested executor', proposal.executor) : ''}
-    </div>
-    ${renderEvidence(proposal)}
+        <section class="review-proposal-summary"><h3>Processed proposal</h3><p class="review-summary">${escapeHtml(proposal.summary)}</p></section>
+        <details class="review-analysis">
+            <summary>Supporting analysis</summary>
+            <p class="review-analysis-help">These details preserve the reasoning for you and for later AI work. They support the decision; they are not separate actions.</p>
+            <div class="review-detail-grid">
+                ${renderDetail('Potential value', proposal.why_it_matters)}
+                ${renderDetail('Facts and assumptions', proposal.grounding)}
+                ${renderDetail('Feasibility and constraints', proposal.viability)}
+                ${renderDetail('Potential approach', proposal.approach)}
+                ${renderDetail('Definition of done', proposal.definition_of_done)}
+                ${renderDetail('Smallest next step', proposal.next_step)}
+                ${renderDetail('Biggest unknown', proposal.biggest_unknown)}
+                ${renderDetail('Clarifying question', proposal.clarifying_question)}
+                ${proposal.executor !== 'none' ? renderDetail('Suggested executor', proposal.executor) : ''}
+            </div>
+            ${renderEvidence(proposal)}
+        </details>
     <div class="review-consequence">
         <span>What approval does now</span>
         <strong>${escapeHtml(primaryLabel)}</strong>
@@ -353,8 +357,14 @@ export function renderReview(items: ReviewItem[]): string {
     const parked = items.filter((item) => item.status === 'skipped' || item.status === 'discarded');
     const workflowUrl = githubInboxWorkflowUrl();
     const sections: string[] = [
-        `<header class="review-page-header"><h1>Inbox review</h1><p>Review one processed proposal at a time. ${ready.length} to review, ${pending.length} waiting to be processed, ${attention.length} blocked.</p>
-            <nav class="review-status-links" aria-label="Inbox status"><span>${ready.length} to review</span><span>${pending.length} to process</span>${approved.length ? `<a href="#approved-items">${approved.length} approved</a>` : '<span>0 approved</span>'}</nav></header>`,
+                `<header class="review-page-header"><h1>Inbox review</h1><p>Processing turns each raw capture into a proposal. You decide what should happen next; approval records that decision but does not carry it out.</p>
+                        <nav class="review-status-links" aria-label="Inbox status"><span>${ready.length} to review</span>${pending.length ? `<button type="button" data-review-target="to-process-items">${pending.length} to process</button>` : '<span>0 to process</span>'}${attention.length ? `<button type="button" data-review-target="attention-items">${attention.length} blocked</button>` : '<span>0 blocked</span>'}${parked.length ? `<button type="button" data-review-target="parked-items">${parked.length} parked</button>` : '<span>0 parked</span>'}${approved.length ? `<button type="button" data-review-target="approved-items">${approved.length} approved</button>` : '<span>0 approved</span>'}</nav>
+                        <details class="review-guide"><summary>How Inbox review works</summary>
+                            <ol><li><strong>Capture:</strong> your original text is preserved.</li><li><strong>Process:</strong> AI infers a stable kind and proposes one outcome.</li><li><strong>Review:</strong> approve, request a change, park, or discard the proposal.</li><li><strong>Follow-through:</strong> approved work stays unfinished until an executor performs the proposed write or handoff.</li></ol>
+                              <p><strong>Kind:</strong> an idea is an opportunity, a task is executable work, a bookmark is a source worth retaining, and unclear means one answer is still needed.</p>
+                              <p><strong>On a proposal:</strong> the title and summary are the processed interpretation; supporting analysis records value, evidence, assumptions, constraints, unknowns, and a possible route; the approval box states exactly what your decision records.</p>
+                            <a href="#/tools%2Finbox-review%2FREADME.md">Read the full processing and field contract</a>
+                        </details></header>`,
     ];
     if (ready.length) {
         sections.push(`<h3 class="review-section-title">Ready for you</h3>${renderReady(ready[0], ready.length)}`);
@@ -362,18 +372,18 @@ export function renderReview(items: ReviewItem[]): string {
         sections.push(`<div class="review-empty"><strong>No processed proposal is waiting for a decision.</strong><span>${pending.length ? `${pending.length} raw capture${pending.length === 1 ? ' is' : 's are'} still waiting to be processed.` : 'There is no active review backlog.'}</span></div>`);
     }
     if (attention.length) {
-        sections.push(`<h3 class="review-section-title">Needs attention (${attention.length})</h3><ul class="review-compact-list">${attention
+        sections.push(`<section id="attention-items"><h3 class="review-section-title">Needs attention (${attention.length})</h3><ul class="review-compact-list">${attention
             .map((item) => renderPendingItem(item, true))
-            .join('')}</ul>`);
+            .join('')}</ul></section>`);
     }
     if (pending.length) {
-        sections.push(`<details class="review-group" open><summary>To process (${pending.length})</summary>
+        sections.push(`<details class="review-group" id="to-process-items" open><summary>To process (${pending.length})</summary>
             <div class="review-processing-controls"><button type="button" class="review-btn review-btn-primary review-process-action" data-process-limit="5">Process next five</button><span class="review-run-status" aria-live="polite"></span></div>
             <p class="review-workflow-help">Processing turns raw captures into proposals for review. It currently uses a low-cost hosted model, but the contract is provider-independent. <a href="${workflowUrl}" target="_blank" rel="noopener noreferrer">Open processing runs on GitHub ↗</a></p>
       <ul class="review-compact-list">${pending.map((item) => renderPendingItem(item)).join('')}</ul></details>`);
     }
     if (parked.length) {
-        sections.push(`<details class="review-group"><summary>Skipped or discarded (${parked.length})</summary><ul class="review-compact-list">${parked
+        sections.push(`<details class="review-group" id="parked-items"><summary>Skipped or discarded (${parked.length})</summary><p class="review-workflow-help">These captures are retained, not deleted. Open this section and restore one to return it to the active flow.</p><ul class="review-compact-list">${parked
             .map(renderCompletedItem)
             .join('')}</ul></details>`);
     }
@@ -383,6 +393,19 @@ export function renderReview(items: ReviewItem[]): string {
             <ul class="review-compact-list">${approved.map(renderApprovedItem).join('')}</ul></details>`);
     }
     return sections.join('');
+}
+
+function focusReviewSection(id: string, smooth = true): void {
+    const target = document.getElementById(id);
+    if (!target) return;
+    if (target instanceof HTMLDetailsElement) target.open = true;
+    target.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'start' });
+}
+
+function wireReviewNavigation(): void {
+    document.querySelectorAll<HTMLButtonElement>('[data-review-target]').forEach((button) => {
+        button.onclick = () => focusReviewSection(button.dataset.reviewTarget!);
+    });
 }
 
 async function writeReviewState(
@@ -622,7 +645,7 @@ function wireReviewActions(pat: string, items: ReviewItem[], render: () => void,
     };
 }
 
-export async function showInboxReview(pat: string, paths: string[]): Promise<void> {
+export async function showInboxReview(pat: string, paths: string[], initialSection = ''): Promise<void> {
     const breadcrumb = document.querySelector<HTMLParagraphElement>('#breadcrumb')!;
     const updated = document.querySelector<HTMLElement>('#last-updated')!;
     const editLink = document.querySelector<HTMLAnchorElement>('#edit-link')!;
@@ -642,6 +665,7 @@ export async function showInboxReview(pat: string, paths: string[]): Promise<voi
 
     try {
         let items: ReviewItem[] = [];
+        let sectionToFocus = initialSection;
         const refresh = async () => {
             const tree = await fetchMarkdownTree(pat);
             const freshPaths = tree.map((file) => file.path);
@@ -654,7 +678,13 @@ export async function showInboxReview(pat: string, paths: string[]): Promise<voi
             content.innerHTML = renderReview(items);
             wireReviewActions(pat, items, render, refresh);
             wireProcessingActions(pat, items, refresh);
-            document.querySelector('.content-column')?.scrollTo(0, 0);
+            wireReviewNavigation();
+            if (sectionToFocus) {
+                focusReviewSection(sectionToFocus, false);
+                sectionToFocus = '';
+            } else {
+                document.querySelector('.content-column')?.scrollTo(0, 0);
+            }
         };
         await refresh();
     } catch (error) {

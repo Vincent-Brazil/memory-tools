@@ -316,6 +316,10 @@ function route(pat: string): Promise<void> {
   const path = currentPath();
   if (path === 'graph') return showGraphView(pat);
   if (path === 'triage') return showInboxReview(pat, navOrder);
+  if (path === 'approved-items' || path === 'approve-items') {
+    history.replaceState(null, '', '#/triage');
+    return showInboxReview(pat, navOrder, 'approved-items');
+  }
   return loadPage(pat, path);
 }
 
@@ -1303,12 +1307,13 @@ function rewriteLinks(container: HTMLElement, baseDir: string) {
 function showError(err: unknown, path?: string, onRetry?: () => void) {
   const content = document.querySelector<HTMLElement>('#content');
   const message = err instanceof Error ? err.message : 'Something went wrong.';
+  const backToReview = path === 'approved-items' || path === 'approve-items';
   if (!content) return;
   content.innerHTML = `
     <p class="error">${message}</p>
     <p class="error-actions">
       ${onRetry ? '<button id="retry-btn" type="button" class="retry-btn">retry</button>' : ''}
-      ${path && path !== 'index.md' ? '<a href="#/index.md">&larr; back to index</a>' : ''}
+      ${path && path !== 'index.md' ? `<a href="${backToReview ? '#/triage' : '#/index.md'}">&larr; back to ${backToReview ? 'Inbox review' : 'index'}</a>` : ''}
     </p>
   `;
   if (onRetry) document.querySelector<HTMLButtonElement>('#retry-btn')!.addEventListener('click', onRetry);
