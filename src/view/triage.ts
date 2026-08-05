@@ -1,8 +1,12 @@
 import { marked } from 'marked';
 import {
     fetchFileContent,
+    fetchInboxProcessRun,
+    fetchMarkdownTree,
     githubInboxWorkflowUrl,
+    startInboxProcessing,
     updateFileContent,
+    type InboxProcessRun,
 } from '../github';
 
 const FETCH_CONCURRENCY = 6;
@@ -49,7 +53,6 @@ interface ReviewProposal {
 interface ReviewItem {
     path: string;
     captured: string;
-    captureHint: string;
     status: string;
     original: string;
     proposal: ReviewProposal | null;
@@ -157,12 +160,11 @@ export async function buildQueue(
                 items.push({
                     path,
                     captured: meta.captured ?? '',
-                    captureHint: meta.capture_hint ?? meta.type ?? '',
                     status: meta.status || 'captured',
                     original: originalText(body),
                     proposal: parseProposal(body),
-                    attempts: Number(meta.shaping_attempts ?? meta.preparation_attempts) || 0,
-                    error: meta.shaping_error ?? meta.preparation_error ?? '',
+                    attempts: Number(meta.processing_attempts ?? meta.shaping_attempts ?? meta.preparation_attempts) || 0,
+                    error: meta.processing_error ?? meta.shaping_error ?? meta.preparation_error ?? '',
                     feedback: meta.review_feedback ?? '',
                     approvedOutcome: meta.approved_outcome ?? '',
                     approvedTarget: meta.approved_target ?? '',
@@ -175,7 +177,6 @@ export async function buildQueue(
                 items.push({
                     path,
                     captured: '',
-                    captureHint: '',
                     status: 'needs_attention',
                     original: '',
                     proposal: null,
@@ -221,10 +222,10 @@ function renderEvidence(proposal: ReviewProposal): string {
 function renderChangeForm(item: ReviewItem): string {
     return `<div class="review-change" data-change-for="${escapeHtml(item.path)}" hidden>
     <label>What is wrong or missing?
-      <textarea class="review-feedback" rows="3" placeholder="Add the context DeepSeek needs to shape this again.">${escapeHtml(item.feedback)}</textarea>
+            <textarea class="review-feedback" rows="3" placeholder="Add the context needed to process this again.">${escapeHtml(item.feedback)}</textarea>
     </label>
     <div class="review-change-actions">
-      <button type="button" class="review-btn review-btn-primary review-action" data-action="submit-change" data-path="${escapeHtml(item.path)}">Shape again</button>
+            <button type="button" class="review-btn review-btn-primary review-action" data-action="submit-change" data-path="${escapeHtml(item.path)}">Process again</button>
       <button type="button" class="review-btn review-action" data-action="cancel-change" data-path="${escapeHtml(item.path)}">Cancel</button>
     </div>
   </div>`;
@@ -247,9 +248,9 @@ function approvalPendingEffect(outcome: ProposalOutcome, target: string): string
     const destination = target || (outcome === 'save_idea' ? 'ideas/' : 'its eventual destination');
     switch (outcome) {
         case 'save_idea':
-            return `This records your decision to file the shaped idea in ${destination}. It does not create or move the idea entry yet; the full proposal stays in Inbox under “Approved, awaiting follow-through”.`;
+            return `This records your decision to file the processed idea in ${destination}. It does not create or move the idea entry yet; the full proposal stays in Inbox under “Approved, awaiting follow-through”.`;
         case 'add_project_task':
-            return `This records your decision to add the shaped task to ${destination}. It does not update that backlog yet; the full proposal stays in Inbox under “Approved, awaiting follow-through”.`;
+            return `This records your decision to add the processed task to ${destination}. It does not update that backlog yet; the full proposal stays in Inbox under “Approved, awaiting follow-through”.`;
         case 'send_to_cockpit':
             return 'This records your decision to hand the task to Cockpit. It does not create a Cockpit card yet; the full proposal stays in Inbox under “Approved, awaiting follow-through”.';
         case 'create_research_task':
@@ -257,7 +258,7 @@ function approvalPendingEffect(outcome: ProposalOutcome, target: string): string
         case 'attach_source':
             return `This records your decision to attach the source to ${destination}. It does not update that destination yet; the full proposal stays in Inbox under “Approved, awaiting follow-through”.`;
         case 'save_bookmark':
-            return 'This records your decision to retain the shaped bookmark. It does not file it elsewhere yet; the full proposal stays in Inbox under “Approved, awaiting follow-through”.';
+            return 'This records your decision to retain the processed bookmark. It does not file it elsewhere yet; the full proposal stays in Inbox under “Approved, awaiting follow-through”.';
         case 'ask_clarification':
             return 'This records that the clarification needs answering. It stays visible in Inbox under “Approved, awaiting follow-through” until that happens.';
         case 'discard':
@@ -308,14 +309,14 @@ function renderReady(item: ReviewItem, remaining: number): string {
 
 function renderPendingItem(item: ReviewItem, attention = false): string {
     const message = attention
-        ? escapeHtml(item.error || 'The proposal is missing or invalid and needs to be shaped again.')
+        ? escapeHtml(item.error || 'The proposal is missing or invalid and needs to be processed again.')
         : item.feedback
-            ? `Waiting to be shaped again with your note: ${escapeHtml(item.feedback)}`
-            : 'Waiting for DeepSeek to shape it.';
+            ? `Waiting to be processed again with your note: ${escapeHtml(item.feedback)}`
+            : 'Waiting to be processed.';
     return `<li class="review-compact-card" data-path="${escapeHtml(item.path)}">
     <div><strong>${escapeHtml(item.original || item.path)}</strong><p>${message}</p></div>
     <div class="review-compact-actions">
-      ${attention ? `<button type="button" class="review-btn review-action" data-action="retry" data-path="${escapeHtml(item.path)}">Retry</button>` : ''}
+      <button type="button" class="review-btn review-btn-primary review-process-action" data-process-item="${escapeHtml(item.path)}">${attention ? 'Retry processing' : 'Process this item'}</button>
       <button type="button" class="review-btn review-action" data-action="change" data-path="${escapeHtml(item.path)}">Add context</button>
       <button type="button" class="review-btn review-btn-danger review-action" data-action="discard" data-path="${escapeHtml(item.path)}">Discard</button>
     </div>
@@ -354,26 +355,23 @@ export function renderReview(items: ReviewItem[]): string {
     const parked = items.filter((item) => item.status === 'skipped' || item.status === 'discarded');
     const workflowUrl = githubInboxWorkflowUrl();
     const sections: string[] = [
-        `<header class="review-page-header"><h1>Inbox review</h1><p>Review one shaped proposal at a time. ${ready.length} to review, ${pending.length} waiting for DeepSeek, ${approved.length} approved and awaiting follow-through, ${attention.length} blocked.</p></header>`,
+                `<header class="review-page-header"><h1>Inbox review</h1><p>Review one processed proposal at a time. ${ready.length} to review, ${pending.length} waiting to be processed, ${attention.length} blocked.</p>
+            <nav class="review-status-links" aria-label="Inbox status"><span>${ready.length} to review</span><span>${pending.length} to process</span>${approved.length ? `<a href="#approved-items">${approved.length} approved</a>` : '<span>0 approved</span>'}</nav></header>`,
     ];
     if (ready.length) {
         sections.push(`<h3 class="review-section-title">Ready for you</h3>${renderReady(ready[0], ready.length)}`);
     } else {
-        sections.push(`<div class="review-empty"><strong>No shaped proposal is waiting for a decision.</strong><span>${pending.length ? `${pending.length} raw capture${pending.length === 1 ? ' is' : 's are'} still waiting for DeepSeek.` : 'There is no active review backlog.'}</span></div>`);
+        sections.push(`<div class="review-empty"><strong>No processed proposal is waiting for a decision.</strong><span>${pending.length ? `${pending.length} raw capture${pending.length === 1 ? ' is' : 's are'} still waiting to be processed.` : 'There is no active review backlog.'}</span></div>`);
     }
     if (attention.length) {
         sections.push(`<h3 class="review-section-title">Needs attention (${attention.length})</h3><ul class="review-compact-list">${attention
             .map((item) => renderPendingItem(item, true))
             .join('')}</ul>`);
     }
-    if (approved.length) {
-        sections.push(`<section class="review-awaiting-group"><h3 class="review-section-title">Approved, awaiting follow-through (${approved.length})</h3>
-      <p class="review-awaiting-help">These are not filed, handed off, or finished. Approval is recorded and the full proposal stays here until an executor completes the destination write.</p>
-      <ul class="review-compact-list">${approved.map(renderApprovedItem).join('')}</ul></section>`);
-    }
     if (pending.length) {
-        sections.push(`<details class="review-group" open><summary>Waiting for DeepSeek (${pending.length})</summary>
-      <p class="review-workflow-help">DeepSeek shapes up to five each morning. The other captures have not been processed yet. <a href="${workflowUrl}" target="_blank" rel="noopener noreferrer">Run Shape inbox now on GitHub ↗</a></p>
+                sections.push(`<details class="review-group" open><summary>To process (${pending.length})</summary>
+            <div class="review-processing-controls"><button type="button" class="review-btn review-btn-primary review-process-action" data-process-limit="5">Process next five</button><span class="review-run-status" aria-live="polite"></span></div>
+            <p class="review-workflow-help">Processing turns raw captures into proposals for review. It currently uses a low-cost hosted model, but the contract is provider-independent. <a href="${workflowUrl}" target="_blank" rel="noopener noreferrer">Open processing runs on GitHub ↗</a></p>
       <ul class="review-compact-list">${pending.map((item) => renderPendingItem(item)).join('')}</ul></details>`);
     }
     if (parked.length) {
@@ -381,6 +379,11 @@ export function renderReview(items: ReviewItem[]): string {
             .map(renderCompletedItem)
             .join('')}</ul></details>`);
     }
+        if (approved.length) {
+                sections.push(`<details class="review-awaiting-group" id="approved-items"><summary>Approved, awaiting follow-through (${approved.length})</summary>
+            <p class="review-awaiting-help">These are not filed, handed off, or finished. Approval is recorded and the full proposal stays here until an executor completes the destination write.</p>
+            <ul class="review-compact-list">${approved.map(renderApprovedItem).join('')}</ul></details>`);
+        }
     return sections.join('');
 }
 
@@ -407,7 +410,45 @@ function setBusy(path: string, busy: boolean): void {
     document.querySelector<HTMLElement>(`[data-path="${CSS.escape(path)}"]`)?.classList.toggle('busy', busy);
 }
 
-function wireReviewActions(pat: string, items: ReviewItem[], render: () => void): void {
+function runStatusText(run: InboxProcessRun): string {
+    if (run.status !== 'completed') return run.status === 'queued' ? 'Processing queued…' : 'Processing…';
+    return run.conclusion === 'success' ? 'Processing complete. Refreshing…' : `Processing ${run.conclusion || 'finished'}.`;
+}
+
+async function pollProcessingRun(pat: string, run: InboxProcessRun, refresh: () => Promise<void>): Promise<void> {
+    const status = document.querySelector<HTMLElement>('.review-run-status');
+    let current = run;
+    if (status) status.textContent = runStatusText(current);
+    while (current.status !== 'completed') {
+        await new Promise((resolve) => setTimeout(resolve, 3_000));
+        current = await fetchInboxProcessRun(pat, current.id);
+        if (status) status.textContent = runStatusText(current);
+    }
+    if (current.conclusion !== 'success') throw new Error(`Processing did not complete successfully. Check ${current.htmlUrl}`);
+    await refresh();
+}
+
+function wireProcessingActions(pat: string, refresh: () => Promise<void>): void {
+    document.querySelectorAll<HTMLButtonElement>('.review-process-action').forEach((button) => {
+        button.onclick = () => void (async () => {
+            const original = button.textContent || 'Process';
+            button.disabled = true;
+            button.textContent = 'Starting…';
+            try {
+                const item = button.dataset.processItem?.split('/').pop();
+                const run = await startInboxProcessing(pat, item ? { item } : { limit: Number(button.dataset.processLimit) || 5 });
+                button.textContent = 'Processing…';
+                await pollProcessingRun(pat, run, refresh);
+            } catch (error) {
+                alert(error instanceof Error ? error.message : 'Could not start processing.');
+                button.disabled = false;
+                button.textContent = original;
+            }
+        })();
+    });
+}
+
+function wireReviewActions(pat: string, items: ReviewItem[], render: () => void, refresh: () => Promise<void>): void {
     const content = document.querySelector<HTMLElement>('#content')!;
     const byPath = new Map(items.map((item) => [item.path, item]));
     content.onclick = (event) => {
@@ -492,26 +533,6 @@ function wireReviewActions(pat: string, items: ReviewItem[], render: () => void)
                     item.status = nextStatus;
                     item.approvedOutcome = '';
                     item.approvedTarget = '';
-                } else if (action === 'retry') {
-                    await writeReviewState(
-                        pat,
-                        item,
-                        {
-                            status: 'captured',
-                            shaping_attempts: null,
-                            shaping_last_attempt: null,
-                            shaping_error: null,
-                            preparation_attempts: null,
-                            preparation_last_attempt: null,
-                            preparation_error: null,
-                        },
-                        `inbox review: ${path} -> retry shaping`,
-                        true
-                    );
-                    item.status = 'captured';
-                    item.proposal = null;
-                    item.attempts = 0;
-                    item.error = '';
                 } else if (action === 'submit-change') {
                     const panel = document.querySelector<HTMLElement>(`.review-change[data-change-for="${CSS.escape(path)}"]`)!;
                     const feedback = panel.querySelector<HTMLTextAreaElement>('.review-feedback')!.value.trim();
@@ -525,6 +546,11 @@ function wireReviewActions(pat: string, items: ReviewItem[], render: () => void)
                         {
                             status: 'captured',
                             review_feedback: feedback,
+                            processed_at: null,
+                            processed_by: null,
+                            processing_attempts: null,
+                            processing_last_attempt: null,
+                            processing_error: null,
                             shaped_at: null,
                             shaped_by: null,
                             shaping_attempts: null,
@@ -541,7 +567,7 @@ function wireReviewActions(pat: string, items: ReviewItem[], render: () => void)
                             approved_target: null,
                             skipped_at: null,
                         },
-                        `inbox review: ${path} -> shape again`,
+                        `inbox review: ${path} -> process again`,
                         true
                     );
                     item.status = 'captured';
@@ -551,6 +577,7 @@ function wireReviewActions(pat: string, items: ReviewItem[], render: () => void)
                     item.error = '';
                 }
                 render();
+                window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
             } catch (error) {
                 alert(error instanceof Error ? error.message : 'Could not update this capture.');
                 setBusy(path, false);
@@ -578,17 +605,22 @@ export async function showInboxReview(pat: string, paths: string[]): Promise<voi
     content.innerHTML = '<p class="hint">Loading your review queue…</p>';
 
     try {
-        const { items, missingPaths } = await buildQueue(pat, paths);
-        missingPaths.forEach((path) => {
-            const index = paths.indexOf(path);
-            if (index !== -1) paths.splice(index, 1);
-        });
+        let items: ReviewItem[] = [];
+        const refresh = async () => {
+            const tree = await fetchMarkdownTree(pat);
+            const freshPaths = tree.map((file) => file.path);
+            const result = await buildQueue(pat, freshPaths);
+            items = result.items;
+            paths.splice(0, paths.length, ...freshPaths);
+            render();
+        };
         const render = () => {
             content.innerHTML = renderReview(items);
-            wireReviewActions(pat, items, render);
+            wireReviewActions(pat, items, render, refresh);
+            wireProcessingActions(pat, refresh);
             document.querySelector('.content-column')?.scrollTo(0, 0);
         };
-        render();
+        await refresh();
     } catch (error) {
         content.innerHTML = `<div class="review-empty"><strong>Could not build the review queue.</strong><span>${escapeHtml(
             error instanceof Error ? error.message : 'Unknown error'

@@ -5,7 +5,6 @@ import { buildQueue, parseFrontmatter, renderReview } from './triage';
 const baseItem = {
     path: 'inbox/example.md',
     captured: '2026-08-04T12:00:00Z',
-    captureHint: '',
     original: 'An original capture',
     proposal: null,
     attempts: 0,
@@ -25,15 +24,18 @@ test('discarded captures appear as parked and are restorable', () => {
     assert.doesNotMatch(html, /Needs attention/);
 });
 
-test('raw backlog count is explicit when nothing is ready', () => {
+test('raw backlog uses provider-neutral processing controls', () => {
     const html = renderReview([
         { ...baseItem, path: 'inbox/one.md', status: 'captured' },
         { ...baseItem, path: 'inbox/two.md', status: 'captured' },
     ]);
 
-    assert.match(html, /0 to review, 2 waiting for DeepSeek, 0 approved and awaiting follow-through/);
-    assert.match(html, /2 raw captures are still waiting for DeepSeek/);
-    assert.match(html, /The other captures have not been processed yet/);
+    assert.match(html, /0 to review, 2 waiting to be processed, 0 blocked/);
+    assert.match(html, /2 raw captures are still waiting to be processed/);
+    assert.match(html, /To process \(2\)/);
+    assert.match(html, /Process next five/);
+    assert.match(html, /Process this item/);
+    assert.doesNotMatch(html, /DeepSeek|Shape inbox/);
 });
 
 test('the current proposal shows queue position rather than an ambiguous ready count', () => {
@@ -129,17 +131,19 @@ test('approved ideas stay visibly queued until an executor files them', () => {
     ]);
 
     assert.match(html, /Approved, awaiting follow-through \(1\)/);
+    assert.match(html, /href="#approved-items">1 approved/);
+    assert.match(html, /<details class="review-awaiting-group" id="approved-items">/);
     assert.match(html, /not filed, handed off, or finished/);
     assert.match(html, /Nothing has been filed or handed off yet/);
     assert.match(html, /Open full proposal/);
     assert.match(html, /Undo approval/);
 });
 
-test('shaping metadata parses without exposing legacy terminology', () => {
-    const { meta, body } = parseFrontmatter('---\nstatus: ready\nshaped_by: deepseek:deepseek-chat\n---\n\nRaw capture');
+test('processing metadata parses without depending on provider terminology', () => {
+    const { meta, body } = parseFrontmatter('---\nstatus: ready\nprocessed_by: hosted:cheap-model\n---\n\nRaw capture');
 
     assert.equal(meta.status, 'ready');
-    assert.equal(meta.shaped_by, 'deepseek:deepseek-chat');
+    assert.equal(meta.processed_by, 'hosted:cheap-model');
     assert.equal(body.trim(), 'Raw capture');
 });
 

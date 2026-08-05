@@ -869,6 +869,32 @@
   line-height: 1.55;
 }
 
+.review-status-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.75rem;
+}
+
+.review-status-links span,
+.review-status-links a {
+  padding: 0.3rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  text-decoration: none;
+}
+
+.review-status-links a {
+  color: var(--accent-warm);
+}
+
+.review-status-links a:hover {
+  border-color: var(--accent-warm);
+}
+
 .review-section-title {
   margin: 1.8rem 0 0.7rem;
   color: var(--muted);
@@ -1146,6 +1172,20 @@
   font-size: 0.8rem;
 }
 
+.review-processing-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-top: 0.8rem;
+}
+
+.review-run-status {
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+}
+
 .review-awaiting-group {
   margin-top: 1.5rem;
   padding: 0.85rem;
@@ -1154,13 +1194,15 @@
   background: color-mix(in srgb, var(--accent-warm) 7%, var(--bg-raised));
 }
 
-.review-awaiting-group .review-section-title {
-  margin-top: 0;
+.review-awaiting-group > summary {
   color: var(--accent-warm);
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 0.8rem;
 }
 
 .review-awaiting-help {
-  margin: 0 0 0.65rem;
+  margin: 0.65rem 0;
   color: var(--muted);
   font-size: 0.8rem;
   line-height: 1.5;

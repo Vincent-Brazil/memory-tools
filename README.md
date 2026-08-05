@@ -32,24 +32,24 @@ Capture-time guesses do not decide whether something is an idea, task, or bookma
 
 ### Inbox review
 
-A bounded DeepSeek job in the Memory repository shapes raw captures into structured
+A bounded hosted job in the Memory repository processes raw captures into structured
 proposals. The review screen shows one proposal at a time with:
 
 - inferred kind: idea, task, bookmark, or unclear
-- a shaped description and grounding
+- a processed description and grounding
 - viability, approach, definition of done, or next step where relevant
 - one concrete proposed outcome
 - a receipt explaining exactly what approval records
 
 Available actions are **Approve**, **Change**, **Skip for now**, and **Discard**. Change
 stores human feedback, removes the generated proposal, and queues the original capture for
-shaping again. Discard removes the capture from the active queue but retains it for recovery.
+processing again. Discard removes the capture from the active queue but retains it for recovery.
 Approval records a concrete outcome; it does not pretend a later Memory,
 Cockpit, or agent execution has already happened.
 
 The primary button therefore says **Approve for filing/handoff**, not that filing has
 already happened. Approved captures remain visible in an expanded **Approved, awaiting
-follow-through** queue, with their full shaped proposal intact, until an executor writes the
+follow-through** queue, with their full processed proposal intact, until an executor writes the
 destination and marks the inbox item complete. They are not folded into Reviewed as if done.
 
 Opening an Inbox Markdown file directly uses the same lifecycle. A raw capture offers
@@ -58,11 +58,20 @@ when the proposal is ready. A ready, parked, or approved item links back to **In
 The old **Complete** control was removed: it deleted the Inbox file and could make unfinished
 work look done.
 
-Pending captures link directly to the hosted Shape inbox workflow in GitHub Actions. The
-screen reports how many proposals are ready, how many raw captures are waiting for DeepSeek,
-and how many are blocked, so an empty ready queue is not confused with an empty inbox.
-DeepSeek shapes at most five captures in the daily run; reviewing one proposal does not
-automatically shape the remaining backlog.
+Pending cards offer **Process this item**, and the queue offers **Process next five**. The app
+starts the hosted GitHub Actions run, polls its status, and refreshes when it completes. The
+screen reports how many proposals are ready, how many raw captures need processing, and how
+many are blocked, so an empty ready queue is not confused with an empty inbox. The current
+provider is DeepSeek because it is inexpensive, but provider identity is not exposed as part
+of the workflow contract.
+
+Kinds are limited to **idea**, **task**, **bookmark**, and **unclear**. The model proposes one,
+then deterministic validation checks the enum, compatible outcome, required fields, target,
+evidence, and approval receipt before the item can become ready. New captures have no
+`capture_hint`; the raw text and evidence drive classification.
+
+Approved work is linked from the header and kept in a collapsed **Approved, awaiting
+follow-through** drawer below the active review, processing, and parked sections.
 
 ### Viewer and Graph
 
