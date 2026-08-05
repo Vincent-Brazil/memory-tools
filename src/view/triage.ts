@@ -1,7 +1,9 @@
 import { marked } from 'marked';
 import {
+    deleteFileContent,
     fetchFileContent,
     fetchMarkdownTree,
+    githubEditUrl,
     githubInboxWorkflowUrl,
     startInboxProcessing,
     updateFileContent,
@@ -122,6 +124,27 @@ function originalText(body: string): string {
     const legacy = body.indexOf('## Enrichment (auto,');
     const markers = [proposal, legacy].filter((index) => index >= 0);
     return (markers.length ? body.slice(0, Math.min(...markers)) : body).trim();
+}
+
+function itemTitle(item: ReviewItem): string {
+        const markdownTitle = item.original.match(/^\*\*(.+?)\*\*/)?.[1] ?? item.original.match(/^#{1,6}\s+(.+)$/m)?.[1];
+        if (markdownTitle) return markdownTitle.trim();
+        const firstLine = item.original.split(/\r?\n/, 1)[0].trim();
+        return firstLine || item.path.split('/').pop() || item.path;
+}
+
+function renderItemLinks(item: ReviewItem): string {
+        return `<nav class="review-item-links" aria-label="Capture links">
+            <a href="#/${encodeURIComponent(item.path)}">Open Inbox item</a>
+            <a href="${escapeHtml(githubEditUrl(item.path))}" target="_blank" rel="noopener noreferrer">Edit on GitHub ↗</a>
+        </nav>`;
+}
+
+function renderBrowseControls(position: number, total: number, placement: 'top' | 'bottom'): string {
+        return `<nav class="review-browse review-browse-${placement}" aria-label="Browse proposals">
+            <button type="button" class="review-btn review-browse-action" data-review-direction="previous" ${position === 1 ? 'disabled' : ''}>← Previous</button>
+            <button type="button" class="review-btn review-browse-action" data-review-direction="next" ${position === total ? 'disabled' : ''}>Next →</button>
+        </nav>`;
 }
 
 function stripProposal(raw: string): string {
@@ -260,19 +283,20 @@ function approvalPendingEffect(outcome: ProposalOutcome, target: string): string
         case 'ask_clarification':
             return 'This records that the clarification needs answering. It stays visible in Inbox under “Approved, awaiting follow-through” until that happens.';
         case 'discard':
-            return 'Discard removes this from the active queue but retains the original capture under “Skipped or discarded” so it can be restored.';
+            return 'Discard removes this from the active queue but retains the original capture under “Discarded” so it can be restored or permanently deleted.';
     }
 }
 
-function renderReady(item: ReviewItem, remaining: number): string {
+function renderReady(item: ReviewItem, position: number, remaining: number): string {
     const proposal = item.proposal!;
     const primaryAction = proposal.outcome === 'discard' ? 'discard' : 'approve';
     const primaryLabel = approvalActionLabel(proposal.outcome);
     return `<article class="review-card" data-path="${escapeHtml(item.path)}">
     <header class="review-card-header">
       <span class="review-kind review-kind-${proposal.kind}">${escapeHtml(proposal.kind)}</span>
-      <span class="review-progress">1 of ${remaining} to review</span>
+            <span class="review-progress">${position} of ${remaining} to review</span>
     </header>
+        ${renderBrowseControls(position, remaining, 'top')}
     <h2>${escapeHtml(proposal.title)}</h2>
     ${renderOriginal(item)}
         <section class="review-proposal-summary"><h3>Processed proposal</h3><p class="review-summary">${escapeHtml(proposal.summary)}</p></section>
@@ -305,7 +329,8 @@ function renderReady(item: ReviewItem, remaining: number): string {
       ${proposal.outcome === 'discard' ? '' : `<button type="button" class="review-btn review-btn-danger review-action" data-action="discard" data-path="${escapeHtml(item.path)}">Discard</button>`}
     </div>
     ${renderChangeForm(item)}
-    <a class="review-source-link" href="#/${encodeURIComponent(item.path)}">Open source card</a>
+    ${renderBrowseControls(position, remaining, 'bottom')}
+    ${renderItemLinks(item)}
   </article>`;
 }
 
@@ -316,13 +341,15 @@ function renderPendingItem(item: ReviewItem, attention = false): string {
             ? `Waiting to be processed again with your note: ${escapeHtml(item.feedback)}`
             : 'Waiting to be processed.';
     return `<li class="review-compact-card" data-path="${escapeHtml(item.path)}">
-    <div><strong>${escapeHtml(item.original || item.path)}</strong><p>${message}</p></div>
+    <div><strong>${escapeHtml(itemTitle(item))}</strong><p>${message}</p></div>
+    <details class="review-raw-capture"><summary>Show full capture</summary><div>${marked.parse(escapeHtml(item.original || '*(empty capture)*'), { async: false })}</div></details>
     <div class="review-compact-actions">
       <button type="button" class="review-btn review-btn-primary review-process-action" data-process-item="${escapeHtml(item.path)}">${attention ? 'Retry processing' : 'Process this item'}</button>
       <button type="button" class="review-btn review-action" data-action="change" data-path="${escapeHtml(item.path)}">Add context</button>
       <button type="button" class="review-btn review-btn-danger review-action" data-action="discard" data-path="${escapeHtml(item.path)}">Discard</button>
     </div>
     ${renderChangeForm(item)}
+        ${renderItemLinks(item)}
   </li>`;
 }
 
@@ -331,8 +358,11 @@ function renderCompletedItem(item: ReviewItem): string {
         ? 'Skipped for now.'
         : 'Discarded. The original capture is retained and can be restored.';
     return `<li class="review-completed-card" data-path="${escapeHtml(item.path)}">
-    <div><strong>${escapeHtml(item.original || item.path)}</strong><p>${escapeHtml(receipt)}</p></div>
-    <button type="button" class="review-btn review-action" data-action="restore" data-path="${escapeHtml(item.path)}">${item.status === 'discarded' ? 'Restore capture' : 'Return to review'}</button>
+        <div><strong>${escapeHtml(itemTitle(item))}</strong><p>${escapeHtml(receipt)}</p>${renderItemLinks(item)}</div>
+        <div class="review-completed-actions">
+            <button type="button" class="review-btn review-action" data-action="restore" data-path="${escapeHtml(item.path)}">${item.status === 'discarded' ? 'Restore capture' : 'Return to review'}</button>
+            ${item.status === 'discarded' ? `<button type="button" class="review-btn review-btn-danger review-action" data-action="delete-permanently" data-path="${escapeHtml(item.path)}">Delete permanently</button>` : ''}
+        </div>
   </li>`;
 }
 
@@ -343,31 +373,33 @@ function renderApprovedItem(item: ReviewItem): string {
     return `<li class="review-awaiting-card" data-path="${escapeHtml(item.path)}">
     <div><strong>${escapeHtml(title)}</strong><p>${escapeHtml(label)}. Nothing has been filed or handed off yet; the full proposal remains in Inbox until an executor completes it.</p></div>
     <div class="review-awaiting-actions">
-      <a class="review-source-link" href="#/${encodeURIComponent(item.path)}">Open full proposal</a>
       <button type="button" class="review-btn review-action" data-action="restore" data-path="${escapeHtml(item.path)}">Undo approval</button>
     </div>
+    ${renderItemLinks(item)}
     </li>`;
 }
 
-export function renderReview(items: ReviewItem[]): string {
+export function renderReview(items: ReviewItem[], selectedReadyPath = ''): string {
     const ready = items.filter((item) => item.status === 'ready' && item.proposal);
     const attention = items.filter((item) => item.status === 'needs_attention' || (item.status === 'ready' && !item.proposal));
     const pending = items.filter((item) => item.status === 'captured');
     const approved = items.filter((item) => item.status === 'approved');
-    const parked = items.filter((item) => item.status === 'skipped' || item.status === 'discarded');
+    const skipped = items.filter((item) => item.status === 'skipped');
+    const discarded = items.filter((item) => item.status === 'discarded');
+    const selectedReadyIndex = Math.max(0, ready.findIndex((item) => item.path === selectedReadyPath));
     const workflowUrl = githubInboxWorkflowUrl();
     const sections: string[] = [
                 `<header class="review-page-header"><h1>Inbox review</h1><p>Processing turns each raw capture into a proposal. You decide what should happen next; approval records that decision but does not carry it out.</p>
-                        <nav class="review-status-links" aria-label="Inbox status"><span>${ready.length} to review</span>${pending.length ? `<button type="button" data-review-target="to-process-items">${pending.length} to process</button>` : '<span>0 to process</span>'}${attention.length ? `<button type="button" data-review-target="attention-items">${attention.length} blocked</button>` : '<span>0 blocked</span>'}${parked.length ? `<button type="button" data-review-target="parked-items">${parked.length} parked</button>` : '<span>0 parked</span>'}${approved.length ? `<button type="button" data-review-target="approved-items">${approved.length} approved</button>` : '<span>0 approved</span>'}</nav>
+                        <nav class="review-status-links" aria-label="Inbox status"><span>${ready.length} to review</span>${pending.length ? `<button type="button" data-review-target="to-process-items">${pending.length} to process</button>` : '<span>0 to process</span>'}${attention.length ? `<button type="button" data-review-target="attention-items">${attention.length} blocked</button>` : '<span>0 blocked</span>'}${discarded.length ? `<button type="button" data-review-target="discarded-items">${discarded.length} discarded</button>` : '<span>0 discarded</span>'}${approved.length ? `<button type="button" data-review-target="approved-items">${approved.length} approved</button>` : '<span>0 approved</span>'}</nav>
                         <details class="review-guide"><summary>How Inbox review works</summary>
-                            <ol><li><strong>Capture:</strong> your original text is preserved.</li><li><strong>Process:</strong> AI infers a stable kind and proposes one outcome.</li><li><strong>Review:</strong> approve, request a change, park, or discard the proposal.</li><li><strong>Follow-through:</strong> approved work stays unfinished until an executor performs the proposed write or handoff.</li></ol>
+                            <ol><li><strong>Capture:</strong> your original text is preserved.</li><li><strong>Process:</strong> AI infers a stable kind and proposes one outcome.</li><li><strong>Review:</strong> approve, request a change, skip, or discard the proposal.</li><li><strong>Follow-through:</strong> approved work stays unfinished until an executor performs the proposed write or handoff.</li></ol>
                               <p><strong>Kind:</strong> an idea is an opportunity, a task is executable work, a bookmark is a source worth retaining, and unclear means one answer is still needed.</p>
                               <p><strong>On a proposal:</strong> the title and summary are the processed interpretation; supporting analysis records value, evidence, assumptions, constraints, unknowns, and a possible route; the approval box states exactly what your decision records.</p>
                             <a href="#/tools%2Finbox-review%2FREADME.md">Read the full processing and field contract</a>
                         </details></header>`,
     ];
     if (ready.length) {
-        sections.push(`<h3 class="review-section-title">Ready for you</h3>${renderReady(ready[0], ready.length)}`);
+        sections.push(`<h3 class="review-section-title">Ready for you</h3>${renderReady(ready[selectedReadyIndex], selectedReadyIndex + 1, ready.length)}`);
     } else {
         sections.push(`<div class="review-empty"><strong>No processed proposal is waiting for a decision.</strong><span>${pending.length ? `${pending.length} raw capture${pending.length === 1 ? ' is' : 's are'} still waiting to be processed.` : 'There is no active review backlog.'}</span></div>`);
     }
@@ -382,8 +414,13 @@ export function renderReview(items: ReviewItem[]): string {
             <p class="review-workflow-help">Processing turns raw captures into proposals for review. It currently uses a low-cost hosted model, but the contract is provider-independent. <a href="${workflowUrl}" target="_blank" rel="noopener noreferrer">Open processing runs on GitHub ↗</a></p>
       <ul class="review-compact-list">${pending.map((item) => renderPendingItem(item)).join('')}</ul></details>`);
     }
-    if (parked.length) {
-        sections.push(`<details class="review-group" id="parked-items"><summary>Skipped or discarded (${parked.length})</summary><p class="review-workflow-help">These captures are retained, not deleted. Open this section and restore one to return it to the active flow.</p><ul class="review-compact-list">${parked
+    if (skipped.length) {
+        sections.push(`<details class="review-group" id="skipped-items"><summary>Skipped for now (${skipped.length})</summary><p class="review-workflow-help">These captures are retained. Return one to review when you are ready to decide it.</p><ul class="review-compact-list">${skipped
+            .map(renderCompletedItem)
+            .join('')}</ul></details>`);
+    }
+    if (discarded.length) {
+        sections.push(`<details class="review-group" id="discarded-items"><summary>Discarded (${discarded.length})</summary><p class="review-workflow-help">Discarded captures are retained until you restore or permanently delete them. Permanent deletion removes the current file, but Git history still retains earlier revisions.</p><ul class="review-compact-list">${discarded
             .map(renderCompletedItem)
             .join('')}</ul></details>`);
     }
@@ -402,9 +439,12 @@ function focusReviewSection(id: string, smooth = true): void {
     target.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'start' });
 }
 
-function wireReviewNavigation(): void {
+function wireReviewNavigation(onBrowse: (direction: 'previous' | 'next') => void): void {
     document.querySelectorAll<HTMLButtonElement>('[data-review-target]').forEach((button) => {
         button.onclick = () => focusReviewSection(button.dataset.reviewTarget!);
+    });
+    document.querySelectorAll<HTMLButtonElement>('.review-browse-action').forEach((button) => {
+        button.onclick = () => onBrowse(button.dataset.reviewDirection as 'previous' | 'next');
     });
 }
 
@@ -507,7 +547,13 @@ function wireProcessingActions(pat: string, items: ReviewItem[], refresh: () => 
     });
 }
 
-function wireReviewActions(pat: string, items: ReviewItem[], render: () => void, refresh: () => Promise<void>): void {
+function wireReviewActions(
+    pat: string,
+    items: ReviewItem[],
+    render: () => void,
+    refresh: () => Promise<void>,
+    afterMutation: () => void
+): void {
     const content = document.querySelector<HTMLElement>('#content')!;
     const byPath = new Map(items.map((item) => [item.path, item]));
     content.onclick = (event) => {
@@ -547,6 +593,15 @@ function wireReviewActions(pat: string, items: ReviewItem[], render: () => void,
                     item.status = 'discarded';
                     item.approvedOutcome = '';
                     item.approvedTarget = '';
+                } else if (action === 'delete-permanently') {
+                    if (item.status !== 'discarded') throw new Error('Only discarded captures can be permanently deleted.');
+                    if (!confirm(`Permanently delete this discarded capture from the current Inbox?\n\n${itemTitle(item)}\n\nThis cannot be restored in the app. Git history will still retain earlier revisions.`)) {
+                        setBusy(path, false);
+                        return;
+                    }
+                    await deleteFileContent(pat, path, `inbox review: permanently delete ${path}`);
+                    await refresh();
+                    return;
                 } else if (action === 'approve' && item.proposal) {
                     const now = new Date().toISOString();
                     await writeReviewState(
@@ -635,6 +690,7 @@ function wireReviewActions(pat: string, items: ReviewItem[], render: () => void,
                     item.attempts = 0;
                     item.error = '';
                 }
+                afterMutation();
                 render();
                 window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
             } catch (error) {
@@ -667,6 +723,7 @@ export async function showInboxReview(pat: string, paths: string[], initialSecti
         let items: ReviewItem[] = [];
         let sectionToFocus = initialSection;
         let itemToFocus = initialItemPath;
+        let selectedReadyPath = initialItemPath;
         const refresh = async () => {
             const tree = await fetchMarkdownTree(pat);
             const freshPaths = tree.map((file) => file.path);
@@ -675,15 +732,28 @@ export async function showInboxReview(pat: string, paths: string[], initialSecti
             paths.splice(0, paths.length, ...freshPaths);
             render();
         };
+        const browseReady = (direction: 'previous' | 'next') => {
+            const ready = items.filter((item) => item.status === 'ready' && item.proposal);
+            if (!ready.length) return;
+            const currentIndex = Math.max(0, ready.findIndex((item) => item.path === selectedReadyPath));
+            const nextIndex = direction === 'next' ? currentIndex + 1 : currentIndex - 1;
+            if (nextIndex < 0 || nextIndex >= ready.length) return;
+            selectedReadyPath = ready[nextIndex].path;
+            history.replaceState(null, '', `#/triage?item=${encodeURIComponent(selectedReadyPath)}`);
+            render();
+            document.querySelector('.content-column')?.scrollTo(0, 0);
+            window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+        };
         const render = () => {
-            const focusedItem = itemToFocus ? items.find((item) => item.path === itemToFocus) : undefined;
-            const renderedItems = focusedItem?.status === 'ready' && focusedItem.proposal
-                ? [focusedItem, ...items.filter((item) => item.path !== itemToFocus)]
-                : items;
-            content.innerHTML = renderReview(renderedItems);
-            wireReviewActions(pat, items, render, refresh);
+            content.innerHTML = renderReview(items, selectedReadyPath);
+            wireReviewActions(pat, items, render, refresh, () => {
+                if (!items.some((candidate) => candidate.path === selectedReadyPath && candidate.status === 'ready' && candidate.proposal)) {
+                    selectedReadyPath = items.find((candidate) => candidate.status === 'ready' && candidate.proposal)?.path ?? '';
+                    history.replaceState(null, '', selectedReadyPath ? `#/triage?item=${encodeURIComponent(selectedReadyPath)}` : '#/triage');
+                }
+            });
             wireProcessingActions(pat, items, refresh);
-            wireReviewNavigation();
+            wireReviewNavigation(browseReady);
             if (itemToFocus) {
                 const target = document.querySelector<HTMLElement>(`[data-path="${CSS.escape(itemToFocus)}"]`);
                 if (target) {

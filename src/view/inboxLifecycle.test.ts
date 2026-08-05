@@ -30,6 +30,14 @@ test('a blocked direct item opens Inbox review for a safe retry', () => {
     assert.equal(action.label, 'Open in Inbox review');
 });
 
+test('a discarded item uses discarded language and returns to review', () => {
+    const action = inboxPageActionFor('inbox/capture.md', 'discarded');
+
+    assert.equal(action.type, 'review');
+    assert.match(action.description, /discarded/);
+    assert.doesNotMatch(action.description, /parked/);
+});
+
 test('ordinary files and the Inbox readme have no lifecycle action', () => {
     assert.equal(inboxPageActionFor('projects/example.md', 'captured').type, 'none');
     assert.equal(inboxPageActionFor('inbox/README.md', 'captured').type, 'none');

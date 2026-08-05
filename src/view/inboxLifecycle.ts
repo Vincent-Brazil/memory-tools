@@ -1,4 +1,4 @@
-export type InboxPageAction = 'process' | 'review' | 'approved' | 'parked' | 'blocked' | 'none';
+export type InboxPageAction = 'process' | 'review' | 'approved' | 'blocked' | 'none';
 
 export interface InboxPageActionConfig {
     type: InboxPageAction;
@@ -41,11 +41,16 @@ export function inboxPageActionFor(path: string, status = 'captured'): InboxPage
                 description: 'Approval is recorded, but the destination write has not happened yet.',
             };
         case 'skipped':
+            return {
+                type: 'review',
+                label: 'Open in Inbox review',
+                description: 'This item was skipped and can be returned to review.',
+            };
         case 'discarded':
             return {
-                type: 'parked',
+                type: 'review',
                 label: 'Open in Inbox review',
-                description: 'This item is parked and can be restored from Inbox review.',
+                description: 'This item was discarded and can be restored or permanently deleted from Inbox review.',
             };
         case 'needs_attention':
             return {

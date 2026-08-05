@@ -14,14 +14,27 @@ const baseItem = {
     approvedTarget: '',
 };
 
-test('discarded captures appear as parked and are restorable', () => {
+test('discarded captures are restorable or permanently deletable', () => {
     const html = renderReview([{ ...baseItem, status: 'discarded' }]);
 
     assert.match(html, /0 to review/);
-    assert.match(html, /Skipped or discarded \(1\)/);
+    assert.match(html, /Discarded \(1\)/);
     assert.match(html, /Discarded\. The original capture is retained/);
     assert.match(html, /Restore capture/);
+    assert.match(html, /Delete permanently/);
+    assert.match(html, /Open Inbox item/);
+    assert.match(html, /Edit on GitHub/);
+    assert.match(html, /Git history still retains earlier revisions/);
+    assert.doesNotMatch(html, /parked/i);
     assert.doesNotMatch(html, /Needs attention/);
+});
+
+test('skipped captures cannot be permanently deleted', () => {
+    const html = renderReview([{ ...baseItem, status: 'skipped' }]);
+
+    assert.match(html, /Skipped for now \(1\)/);
+    assert.match(html, /Return to review/);
+    assert.doesNotMatch(html, /Delete permanently/);
 });
 
 test('raw backlog uses provider-neutral processing controls', () => {
@@ -37,6 +50,9 @@ test('raw backlog uses provider-neutral processing controls', () => {
     assert.match(html, /To process \(2\)/);
     assert.match(html, /Process next five/);
     assert.match(html, /Process this item/);
+    assert.match(html, /Show full capture/);
+    assert.match(html, /Open Inbox item/);
+    assert.match(html, /Edit on GitHub/);
     assert.match(html, /How Inbox review works/);
     assert.match(html, /approval records that decision but does not carry it out/);
     assert.doesNotMatch(html, /DeepSeek|Shape inbox/);
@@ -70,6 +86,8 @@ test('the current proposal shows queue position rather than an ambiguous ready c
     ]);
 
     assert.match(html, /1 of 2 to review/);
+    assert.equal((html.match(/data-review-direction="previous"/g) ?? []).length, 2);
+    assert.equal((html.match(/data-review-direction="next"/g) ?? []).length, 2);
     assert.match(html, /Your capture/);
     assert.match(html, /Processed proposal/);
     assert.match(html, /Supporting analysis/);
@@ -143,16 +161,49 @@ test('approved ideas stay visibly queued until an executor files them', () => {
     assert.match(html, /<details class="review-awaiting-group" id="approved-items">/);
     assert.match(html, /not filed, handed off, or finished/);
     assert.match(html, /Nothing has been filed or handed off yet/);
-    assert.match(html, /Open full proposal/);
+    assert.match(html, /Open Inbox item/);
+    assert.match(html, /Edit on GitHub/);
     assert.match(html, /Undo approval/);
 });
 
-test('parked captures have an obvious in-page shortcut instead of appearing missing', () => {
+test('discarded captures have an obvious in-page shortcut instead of appearing missing', () => {
     const html = renderReview([{ ...baseItem, status: 'discarded' }]);
 
-    assert.match(html, /data-review-target="parked-items">1 parked/);
-    assert.match(html, /id="parked-items"/);
-    assert.match(html, /These captures are retained, not deleted/);
+    assert.match(html, /data-review-target="discarded-items">1 discarded/);
+    assert.match(html, /id="discarded-items"/);
+    assert.match(html, /Discarded captures are retained/);
+});
+
+test('a selected ready item can be rendered directly without changing its status', () => {
+    const proposal = {
+        schema_version: 2 as const,
+        kind: 'idea' as const,
+        title: 'Selected idea',
+        summary: 'Selected summary',
+        why_it_matters: '',
+        grounding: '',
+        viability: '',
+        approach: '',
+        definition_of_done: '',
+        next_step: '',
+        biggest_unknown: '',
+        clarifying_question: '',
+        executor: 'none' as const,
+        outcome: 'save_idea' as const,
+        outcome_label: 'Save idea',
+        target: '',
+        approval_effect: 'If approved, this will save the idea.',
+        evidence: [],
+        related: [],
+    };
+    const html = renderReview([
+        { ...baseItem, path: 'inbox/first.md', status: 'ready', proposal: { ...proposal, title: 'First idea' } },
+        { ...baseItem, path: 'inbox/selected.md', status: 'ready', proposal },
+    ], 'inbox/selected.md');
+
+    assert.match(html, /Selected idea/);
+    assert.match(html, /2 of 2 to review/);
+    assert.doesNotMatch(html, /<h2>First idea<\/h2>/);
 });
 
 test('processing metadata parses without depending on provider terminology', () => {

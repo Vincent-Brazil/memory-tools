@@ -190,3 +190,22 @@ export async function updateFileContent(pat: string, path: string, content: stri
     throw new Error(body.message || `GitHub API error ${putRes.status}`);
   }
 }
+
+export async function deleteFileContent(pat: string, path: string, message: string): Promise<void> {
+  const getRes = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/contents/${encodeURIComponent(path)}?ref=${BRANCH}`, {
+    headers: authHeaders(pat),
+    cache: 'no-store',
+  });
+  if (!getRes.ok) {
+    if (getRes.status === 404) throw new Error(`Not found in memory: ${path}`);
+    throw await githubError(getRes, `Could not look up file before deleting it (${getRes.status})`);
+  }
+  const { sha } = (await getRes.json()) as { sha: string };
+
+  const deleteRes = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/contents/${encodeURIComponent(path)}`, {
+    method: 'DELETE',
+    headers: { ...authHeaders(pat), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, sha, branch: BRANCH }),
+  });
+  if (!deleteRes.ok) throw await githubError(deleteRes, `Could not permanently remove this capture (${deleteRes.status})`);
+}

@@ -692,7 +692,7 @@ async function waitForInboxProcessing(pat: string, path: string): Promise<void> 
 
 async function handleInboxPageAction(pat: string) {
   const { type, path } = inboxPageAction;
-  if (type === 'review' || type === 'approved' || type === 'parked') {
+  if (type === 'review' || type === 'approved') {
     location.hash = inboxReviewHash(path);
     return;
   }

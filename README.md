@@ -65,13 +65,14 @@ Approval records a concrete outcome; it does not pretend a later Memory,
 Cockpit, or agent execution has already happened.
 
 The primary button therefore says **Approve for filing/handoff**, not that filing has
-already happened. Approved captures remain visible in an expanded **Approved, awaiting
+already happened. Approved captures remain visible in a collapsed **Approved, awaiting
 follow-through** queue, with their full processed proposal intact, until an executor writes the
 destination and marks the inbox item complete. They are not folded into Reviewed as if done.
 
 Opening an Inbox Markdown file directly uses the same lifecycle. A raw capture offers
 **Process this item**, which starts a one-item hosted run, polls it, and refreshes the page
-when the proposal is ready. A ready, parked, or approved item links back to **Inbox review**.
+when the proposal is ready. A ready, skipped, discarded, or approved item links back to
+**Inbox review**.
 That link carries the item path, so a ready item opens its own proposal even when older ready
 proposals exist ahead of it in the default queue.
 The old **Complete** control was removed: it deleted the Inbox file and could make unfinished
@@ -92,12 +93,19 @@ evidence, and approval receipt before the item can become ready. New captures ha
 `capture_hint`; the raw text and evidence drive classification.
 
 Approved work is linked from the header and kept in a collapsed **Approved, awaiting
-follow-through** drawer below the active review, processing, and parked sections.
+follow-through** drawer below the active review, processing, skipped, and discarded sections.
 
-Skipped and discarded captures are retained in a collapsed **Skipped or discarded**
-section. The header includes a parked count and in-page shortcut so those captures do not
-look lost; restoring one returns it to `ready` when it still has a valid proposal, otherwise
-to `captured` for processing.
+Ready proposals have **Previous** and **Next** controls. Browsing changes only the proposal
+shown on screen; it does not approve, skip, or otherwise mutate either item. Every review
+card links to the exact Inbox item in Viewer and to its GitHub edit screen.
+
+Skipped and discarded captures are shown separately. Discarded items have a header count and
+shortcut, can be restored, and alone offer **Delete permanently**. That deletes the current
+file from the repository after explicit confirmation; Git history still retains earlier
+revisions. Skipped items cannot be permanently deleted from Inbox review.
+
+Long raw captures in **To process** use a concise extracted title with an expandable full
+capture, so developed sibling ideas do not appear as identical walls of Markdown.
 
 ### Writing captures from another session
 
@@ -105,7 +113,7 @@ Any session or feeder that wants an item to enter this lifecycle must write a Ma
 under `inbox/` with the same minimal frontmatter as Capture: `captured`, `source`, and
 `status: captured`. It may put detailed context in the body, but must not invent another
 status such as `developed` or pre-classify it with a legacy `type` field. Unsupported statuses
-remain visible as files in Viewer but do not enter the To process, Ready, Approved, or parked
+remain visible as files in Viewer but do not enter the To process, Ready, Approved, Skipped, or Discarded
 review queues.
 
 ### Viewer and Graph
