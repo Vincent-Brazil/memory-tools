@@ -410,18 +410,21 @@ function setBusy(path: string, busy: boolean): void {
 
 async function pollProcessingState(
     pat: string,
-    expectedPaths: string[],
+    expectedItems: { path: string; attempts: number }[],
     refresh: () => Promise<void>
 ): Promise<void> {
     const status = document.querySelector<HTMLElement>('.review-run-status');
     if (status) status.textContent = 'Processing…';
     for (let attempt = 0; attempt < 80; attempt += 1) {
         await new Promise((resolve) => setTimeout(resolve, 3_000));
-        const states = await Promise.all(expectedPaths.map(async (path) => {
-            const raw = await fetchFileContent(pat, path);
-            return parseFrontmatter(raw).meta.status || 'captured';
+        const completed = await Promise.all(expectedItems.map(async (item) => {
+            const raw = await fetchFileContent(pat, item.path);
+            const meta = parseFrontmatter(raw).meta;
+            const itemStatus = meta.status || 'captured';
+            const attempts = Number(meta.processing_attempts ?? meta.shaping_attempts ?? meta.preparation_attempts) || 0;
+            return itemStatus !== 'captured' || attempts > item.attempts;
         }));
-        if (states.some((itemStatus) => itemStatus !== 'captured')) {
+        if (completed.every(Boolean)) {
             if (status) status.textContent = 'Processing complete. Refreshing…';
             await refresh();
             return;
@@ -440,12 +443,38 @@ function wireProcessingActions(pat: string, items: ReviewItem[], refresh: () => 
                 const itemPath = button.dataset.processItem;
                 const item = itemPath?.split('/').pop();
                 const limit = Number(button.dataset.processLimit) || 5;
-                const expectedPaths = itemPath
-                    ? [itemPath]
-                    : items.filter((candidate) => candidate.status === 'captured').slice(0, limit).map((candidate) => candidate.path);
+                const candidates = itemPath
+                    ? items.filter((candidate) => candidate.path === itemPath)
+                    : items.filter((candidate) => candidate.status === 'captured').slice(0, limit);
+                if (candidates[0]?.status === 'needs_attention') {
+                    const candidate = candidates[0];
+                    await writeReviewState(
+                        pat,
+                        candidate,
+                        {
+                            status: 'captured',
+                            processing_attempts: null,
+                            processing_last_attempt: null,
+                            processing_error: null,
+                            shaping_attempts: null,
+                            shaping_last_attempt: null,
+                            shaping_error: null,
+                            preparation_attempts: null,
+                            preparation_last_attempt: null,
+                            preparation_error: null,
+                        },
+                        `inbox review: ${candidate.path} -> retry processing`,
+                        true
+                    );
+                    candidate.status = 'captured';
+                    candidate.proposal = null;
+                    candidate.attempts = 0;
+                    candidate.error = '';
+                }
+                const expectedItems = candidates.map((candidate) => ({ path: candidate.path, attempts: candidate.attempts }));
                 await startInboxProcessing(pat, item ? { item } : { limit });
                 button.textContent = 'Processing…';
-                await pollProcessingState(pat, expectedPaths, refresh);
+                await pollProcessingState(pat, expectedItems, refresh);
             } catch (error) {
                 alert(error instanceof Error ? error.message : 'Could not start processing.');
                 button.disabled = false;

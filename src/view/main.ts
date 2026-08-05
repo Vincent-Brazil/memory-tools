@@ -675,7 +675,8 @@ async function waitForInboxProcessing(pat: string, path: string): Promise<void> 
     if (currentPath() !== path) return;
     const raw = await fetchFileContent(pat, path);
     const { meta } = parseFrontmatter(raw);
-    if (meta.status === 'ready' || meta.status === 'needs_attention') {
+    const attempts = Number(meta.processing_attempts ?? meta.shaping_attempts ?? meta.preparation_attempts) || 0;
+    if (meta.status === 'ready' || meta.status === 'needs_attention' || attempts > 0) {
       contentCache.delete(path);
       await loadPage(pat, path);
       return;

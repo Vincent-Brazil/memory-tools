@@ -38,9 +38,9 @@ export function inboxPageActionFor(path: string, status = 'captured'): InboxPage
             };
         case 'needs_attention':
             return {
-                type: 'blocked',
-                label: 'Retry processing',
-                description: 'Processing failed repeatedly; retry it from this item.',
+                type: 'review',
+                label: 'Open in Inbox review',
+                description: 'Processing needs attention; retry it from Inbox review.',
             };
         default:
             return { type: 'none', label: '', description: '' };

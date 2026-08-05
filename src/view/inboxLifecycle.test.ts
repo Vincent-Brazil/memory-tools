@@ -23,6 +23,13 @@ test('an approved item cannot be mistaken for completed work', () => {
     assert.match(action.description, /destination write has not happened/);
 });
 
+test('a blocked direct item opens Inbox review for a safe retry', () => {
+    const action = inboxPageActionFor('inbox/capture.md', 'needs_attention');
+
+    assert.equal(action.type, 'review');
+    assert.equal(action.label, 'Open in Inbox review');
+});
+
 test('ordinary files and the Inbox readme have no lifecycle action', () => {
     assert.equal(inboxPageActionFor('projects/example.md', 'captured').type, 'none');
     assert.equal(inboxPageActionFor('inbox/README.md', 'captured').type, 'none');
