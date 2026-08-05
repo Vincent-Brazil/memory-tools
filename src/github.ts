@@ -30,7 +30,7 @@ function authHeaders(pat: string) {
 async function githubError(res: Response, fallback: string): Promise<Error> {
   const body = (await res.json().catch(() => ({}))) as { message?: string };
   if (res.status === 401 || res.status === 403) {
-    return new Error('GitHub rejected this action. Check that the token has Actions read/write access as well as Contents access.');
+    return new Error('GitHub rejected this action. Check that the token still has Contents read/write access to this repository.');
   }
   return new Error(body.message || fallback);
 }
