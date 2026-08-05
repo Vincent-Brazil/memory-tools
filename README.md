@@ -72,6 +72,8 @@ destination and marks the inbox item complete. They are not folded into Reviewed
 Opening an Inbox Markdown file directly uses the same lifecycle. A raw capture offers
 **Process this item**, which starts a one-item hosted run, polls it, and refreshes the page
 when the proposal is ready. A ready, parked, or approved item links back to **Inbox review**.
+That link carries the item path, so a ready item opens its own proposal even when older ready
+proposals exist ahead of it in the default queue.
 The old **Complete** control was removed: it deleted the Inbox file and could make unfinished
 work look done.
 

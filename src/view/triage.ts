@@ -645,7 +645,7 @@ function wireReviewActions(pat: string, items: ReviewItem[], render: () => void,
     };
 }
 
-export async function showInboxReview(pat: string, paths: string[], initialSection = ''): Promise<void> {
+export async function showInboxReview(pat: string, paths: string[], initialSection = '', initialItemPath = ''): Promise<void> {
     const breadcrumb = document.querySelector<HTMLParagraphElement>('#breadcrumb')!;
     const updated = document.querySelector<HTMLElement>('#last-updated')!;
     const editLink = document.querySelector<HTMLAnchorElement>('#edit-link')!;
@@ -666,6 +666,7 @@ export async function showInboxReview(pat: string, paths: string[], initialSecti
     try {
         let items: ReviewItem[] = [];
         let sectionToFocus = initialSection;
+        let itemToFocus = initialItemPath;
         const refresh = async () => {
             const tree = await fetchMarkdownTree(pat);
             const freshPaths = tree.map((file) => file.path);
@@ -675,11 +676,22 @@ export async function showInboxReview(pat: string, paths: string[], initialSecti
             render();
         };
         const render = () => {
-            content.innerHTML = renderReview(items);
+            const focusedItem = itemToFocus ? items.find((item) => item.path === itemToFocus) : undefined;
+            const renderedItems = focusedItem?.status === 'ready' && focusedItem.proposal
+                ? [focusedItem, ...items.filter((item) => item.path !== itemToFocus)]
+                : items;
+            content.innerHTML = renderReview(renderedItems);
             wireReviewActions(pat, items, render, refresh);
             wireProcessingActions(pat, items, refresh);
             wireReviewNavigation();
-            if (sectionToFocus) {
+            if (itemToFocus) {
+                const target = document.querySelector<HTMLElement>(`[data-path="${CSS.escape(itemToFocus)}"]`);
+                if (target) {
+                    target.closest('details')?.setAttribute('open', '');
+                    target.scrollIntoView({ behavior: 'auto', block: 'start' });
+                }
+                itemToFocus = '';
+            } else if (sectionToFocus) {
                 focusReviewSection(sectionToFocus, false);
                 sectionToFocus = '';
             } else {

@@ -6,6 +6,17 @@ export interface InboxPageActionConfig {
     description: string;
 }
 
+export function inboxReviewHash(path = ''): string {
+    return path ? `#/triage?item=${encodeURIComponent(path)}` : '#/triage';
+}
+
+export function inboxReviewItemFromRoute(route: string): string | null {
+    const prefix = 'triage?item=';
+    if (!route.startsWith(prefix)) return null;
+    const path = route.slice(prefix.length).trim();
+    return path.startsWith('inbox/') && path !== 'inbox/README.md' ? path : null;
+}
+
 export function inboxPageActionFor(path: string, status = 'captured'): InboxPageActionConfig {
     if (!path.startsWith('inbox/') || path === 'inbox/README.md') {
         return { type: 'none', label: '', description: '' };

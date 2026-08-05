@@ -15,7 +15,7 @@ import { getPat, clearPat, getRepo, clearRepo, renderSetupScreen, wireSetupForm 
 import { getTheme, applyTheme } from '../shared/theme';
 import { renderSettingsWidget, wireSettingsWidget } from '../shared/settingsWidget';
 import { showInboxReview } from './triage';
-import { inboxPageActionFor, type InboxPageAction } from './inboxLifecycle';
+import { inboxPageActionFor, inboxReviewHash, inboxReviewItemFromRoute, type InboxPageAction } from './inboxLifecycle';
 
 applyTheme(getTheme());
 
@@ -316,6 +316,7 @@ function route(pat: string): Promise<void> {
   const path = currentPath();
   if (path === 'graph') return showGraphView(pat);
   if (path === 'triage') return showInboxReview(pat, navOrder);
+  if (path.startsWith('triage?item=')) return showInboxReview(pat, navOrder, '', inboxReviewItemFromRoute(path) ?? '');
   if (path === 'approved-items' || path === 'approve-items') {
     history.replaceState(null, '', '#/triage');
     return showInboxReview(pat, navOrder, 'approved-items');
@@ -692,7 +693,7 @@ async function waitForInboxProcessing(pat: string, path: string): Promise<void> 
 async function handleInboxPageAction(pat: string) {
   const { type, path } = inboxPageAction;
   if (type === 'review' || type === 'approved' || type === 'parked') {
-    location.hash = '#/triage';
+    location.hash = inboxReviewHash(path);
     return;
   }
   if (type !== 'process' && type !== 'blocked') return;

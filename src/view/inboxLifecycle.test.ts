@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { inboxPageActionFor } from './inboxLifecycle';
+import { inboxPageActionFor, inboxReviewHash, inboxReviewItemFromRoute } from './inboxLifecycle';
 
 test('a direct raw Inbox item can start processing', () => {
     assert.deepEqual(inboxPageActionFor('inbox/capture.md', 'captured'), {
@@ -33,4 +33,12 @@ test('a blocked direct item opens Inbox review for a safe retry', () => {
 test('ordinary files and the Inbox readme have no lifecycle action', () => {
     assert.equal(inboxPageActionFor('projects/example.md', 'captured').type, 'none');
     assert.equal(inboxPageActionFor('inbox/README.md', 'captured').type, 'none');
+});
+
+test('a direct Inbox item can target its exact proposal in review', () => {
+    const path = 'inbox/capture with spaces.md';
+
+    assert.equal(inboxReviewHash(path), '#/triage?item=inbox%2Fcapture%20with%20spaces.md');
+    assert.equal(inboxReviewItemFromRoute('triage?item=inbox/capture with spaces.md'), path);
+    assert.equal(inboxReviewItemFromRoute('triage?item=projects/example.md'), null);
 });
