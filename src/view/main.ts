@@ -8,10 +8,8 @@ import {
   fetchLastCommitDate,
   githubEditUrl,
   startInboxProcessing,
-  fetchInboxProcessRun,
   configureRepo,
   type MarkdownFile,
-  type InboxProcessRun,
 } from '../github';
 import { getPat, clearPat, getRepo, clearRepo, renderSetupScreen, wireSetupForm } from '../shared/auth';
 import { getTheme, applyTheme } from '../shared/theme';
@@ -669,28 +667,21 @@ function configureInboxPageAction(path: string, meta: Record<string, string>) {
   button.title = action.description;
 }
 
-function runStatusText(run: InboxProcessRun): string {
-  if (run.status !== 'completed') return run.status === 'queued' ? 'Processing queued…' : 'Processing…';
-  return run.conclusion === 'success' ? 'Processed. Refreshing…' : `Processing ${run.conclusion || 'finished'}`;
-}
-
-async function waitForInboxProcessing(pat: string, run: InboxProcessRun, path: string): Promise<void> {
+async function waitForInboxProcessing(pat: string, path: string): Promise<void> {
   const button = document.querySelector<HTMLButtonElement>('#inbox-action-btn')!;
-  let current = run;
-  button.textContent = runStatusText(current);
-  while (current.status !== 'completed') {
+  button.textContent = 'Processing…';
+  for (let attempt = 0; attempt < 80; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 3_000));
-    current = await fetchInboxProcessRun(pat, current.id);
     if (currentPath() !== path) return;
-    button.textContent = runStatusText(current);
+    const raw = await fetchFileContent(pat, path);
+    const { meta } = parseFrontmatter(raw);
+    if (meta.status === 'ready' || meta.status === 'needs_attention') {
+      contentCache.delete(path);
+      await loadPage(pat, path);
+      return;
+    }
   }
-  if (current.conclusion !== 'success') {
-    button.disabled = false;
-    button.textContent = 'Retry processing';
-    throw new Error(`Processing did not complete successfully. Check ${current.htmlUrl}`);
-  }
-  contentCache.delete(path);
-  await loadPage(pat, path);
+  throw new Error('Processing is still running. Open Inbox review later to see the result.');
 }
 
 async function handleInboxPageAction(pat: string) {
@@ -705,8 +696,8 @@ async function handleInboxPageAction(pat: string) {
   button.disabled = true;
   button.textContent = 'Starting processing…';
   try {
-    const run = await startInboxProcessing(pat, { item: path.split('/').pop()! });
-    await waitForInboxProcessing(pat, run, path);
+    await startInboxProcessing(pat, { item: path.split('/').pop()! });
+    await waitForInboxProcessing(pat, path);
   } catch (err) {
     alert(err instanceof Error ? err.message : 'Could not process this item.');
     button.disabled = false;

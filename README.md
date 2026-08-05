@@ -59,7 +59,9 @@ The old **Complete** control was removed: it deleted the Inbox file and could ma
 work look done.
 
 Pending cards offer **Process this item**, and the queue offers **Process next five**. The app
-starts the hosted GitHub Actions run, polls its status, and refreshes when it completes. The
+starts the hosted GitHub Actions run, polls the affected Inbox item states, and refreshes when
+they change. This works with the existing Contents-scoped token and does not require broader
+Actions access. The
 screen reports how many proposals are ready, how many raw captures need processing, and how
 many are blocked, so an empty ready queue is not confused with an empty inbox. The current
 provider is DeepSeek because it is inexpensive, but provider identity is not exposed as part

@@ -1194,7 +1194,7 @@
   background: color-mix(in srgb, var(--accent-warm) 7%, var(--bg-raised));
 }
 
-.review-awaiting-group > summary {
+.review-awaiting-group>summary {
   color: var(--accent-warm);
   cursor: pointer;
   font-family: var(--mono);

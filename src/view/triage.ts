@@ -1,12 +1,10 @@
 import { marked } from 'marked';
 import {
     fetchFileContent,
-    fetchInboxProcessRun,
     fetchMarkdownTree,
     githubInboxWorkflowUrl,
     startInboxProcessing,
     updateFileContent,
-    type InboxProcessRun,
 } from '../github';
 
 const FETCH_CONCURRENCY = 6;
@@ -355,7 +353,7 @@ export function renderReview(items: ReviewItem[]): string {
     const parked = items.filter((item) => item.status === 'skipped' || item.status === 'discarded');
     const workflowUrl = githubInboxWorkflowUrl();
     const sections: string[] = [
-                `<header class="review-page-header"><h1>Inbox review</h1><p>Review one processed proposal at a time. ${ready.length} to review, ${pending.length} waiting to be processed, ${attention.length} blocked.</p>
+        `<header class="review-page-header"><h1>Inbox review</h1><p>Review one processed proposal at a time. ${ready.length} to review, ${pending.length} waiting to be processed, ${attention.length} blocked.</p>
             <nav class="review-status-links" aria-label="Inbox status"><span>${ready.length} to review</span><span>${pending.length} to process</span>${approved.length ? `<a href="#approved-items">${approved.length} approved</a>` : '<span>0 approved</span>'}</nav></header>`,
     ];
     if (ready.length) {
@@ -369,7 +367,7 @@ export function renderReview(items: ReviewItem[]): string {
             .join('')}</ul>`);
     }
     if (pending.length) {
-                sections.push(`<details class="review-group" open><summary>To process (${pending.length})</summary>
+        sections.push(`<details class="review-group" open><summary>To process (${pending.length})</summary>
             <div class="review-processing-controls"><button type="button" class="review-btn review-btn-primary review-process-action" data-process-limit="5">Process next five</button><span class="review-run-status" aria-live="polite"></span></div>
             <p class="review-workflow-help">Processing turns raw captures into proposals for review. It currently uses a low-cost hosted model, but the contract is provider-independent. <a href="${workflowUrl}" target="_blank" rel="noopener noreferrer">Open processing runs on GitHub ↗</a></p>
       <ul class="review-compact-list">${pending.map((item) => renderPendingItem(item)).join('')}</ul></details>`);
@@ -379,11 +377,11 @@ export function renderReview(items: ReviewItem[]): string {
             .map(renderCompletedItem)
             .join('')}</ul></details>`);
     }
-        if (approved.length) {
-                sections.push(`<details class="review-awaiting-group" id="approved-items"><summary>Approved, awaiting follow-through (${approved.length})</summary>
+    if (approved.length) {
+        sections.push(`<details class="review-awaiting-group" id="approved-items"><summary>Approved, awaiting follow-through (${approved.length})</summary>
             <p class="review-awaiting-help">These are not filed, handed off, or finished. Approval is recorded and the full proposal stays here until an executor completes the destination write.</p>
             <ul class="review-compact-list">${approved.map(renderApprovedItem).join('')}</ul></details>`);
-        }
+    }
     return sections.join('');
 }
 
@@ -410,35 +408,44 @@ function setBusy(path: string, busy: boolean): void {
     document.querySelector<HTMLElement>(`[data-path="${CSS.escape(path)}"]`)?.classList.toggle('busy', busy);
 }
 
-function runStatusText(run: InboxProcessRun): string {
-    if (run.status !== 'completed') return run.status === 'queued' ? 'Processing queued…' : 'Processing…';
-    return run.conclusion === 'success' ? 'Processing complete. Refreshing…' : `Processing ${run.conclusion || 'finished'}.`;
-}
-
-async function pollProcessingRun(pat: string, run: InboxProcessRun, refresh: () => Promise<void>): Promise<void> {
+async function pollProcessingState(
+    pat: string,
+    expectedPaths: string[],
+    refresh: () => Promise<void>
+): Promise<void> {
     const status = document.querySelector<HTMLElement>('.review-run-status');
-    let current = run;
-    if (status) status.textContent = runStatusText(current);
-    while (current.status !== 'completed') {
+    if (status) status.textContent = 'Processing…';
+    for (let attempt = 0; attempt < 80; attempt += 1) {
         await new Promise((resolve) => setTimeout(resolve, 3_000));
-        current = await fetchInboxProcessRun(pat, current.id);
-        if (status) status.textContent = runStatusText(current);
+        const states = await Promise.all(expectedPaths.map(async (path) => {
+            const raw = await fetchFileContent(pat, path);
+            return parseFrontmatter(raw).meta.status || 'captured';
+        }));
+        if (states.some((itemStatus) => itemStatus !== 'captured')) {
+            if (status) status.textContent = 'Processing complete. Refreshing…';
+            await refresh();
+            return;
+        }
     }
-    if (current.conclusion !== 'success') throw new Error(`Processing did not complete successfully. Check ${current.htmlUrl}`);
-    await refresh();
+    throw new Error('Processing is still running. Refresh Inbox review later to see the result.');
 }
 
-function wireProcessingActions(pat: string, refresh: () => Promise<void>): void {
+function wireProcessingActions(pat: string, items: ReviewItem[], refresh: () => Promise<void>): void {
     document.querySelectorAll<HTMLButtonElement>('.review-process-action').forEach((button) => {
         button.onclick = () => void (async () => {
             const original = button.textContent || 'Process';
             button.disabled = true;
             button.textContent = 'Starting…';
             try {
-                const item = button.dataset.processItem?.split('/').pop();
-                const run = await startInboxProcessing(pat, item ? { item } : { limit: Number(button.dataset.processLimit) || 5 });
+                const itemPath = button.dataset.processItem;
+                const item = itemPath?.split('/').pop();
+                const limit = Number(button.dataset.processLimit) || 5;
+                const expectedPaths = itemPath
+                    ? [itemPath]
+                    : items.filter((candidate) => candidate.status === 'captured').slice(0, limit).map((candidate) => candidate.path);
+                await startInboxProcessing(pat, item ? { item } : { limit });
                 button.textContent = 'Processing…';
-                await pollProcessingRun(pat, run, refresh);
+                await pollProcessingState(pat, expectedPaths, refresh);
             } catch (error) {
                 alert(error instanceof Error ? error.message : 'Could not start processing.');
                 button.disabled = false;
@@ -617,7 +624,7 @@ export async function showInboxReview(pat: string, paths: string[]): Promise<voi
         const render = () => {
             content.innerHTML = renderReview(items);
             wireReviewActions(pat, items, render, refresh);
-            wireProcessingActions(pat, refresh);
+            wireProcessingActions(pat, items, refresh);
             document.querySelector('.content-column')?.scrollTo(0, 0);
         };
         await refresh();
