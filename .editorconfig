@@ -1,0 +1,19 @@
+# Added 2026-08-20. Something in the toolchain was saving files without a final
+# newline and restyling CSS selectors, which showed up as phantom diffs in
+# `git status` on files nobody had edited. These settings match what the repo
+# already does, so they change nothing except stopping that noise recurring.
+#
+# `end_of_line` is deliberately unset: git handles line endings here
+# (core.autocrlf is on for this machine) and pinning it would fight that.
+root = true
+
+[*]
+charset = utf-8
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Two trailing spaces are a hard line break in markdown.
+[*.md]
+trim_trailing_whitespace = false
