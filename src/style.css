@@ -125,6 +125,18 @@ body {
   flex: 1;
 }
 
+/* Read-only value in the settings menu, e.g. the source repo. Selectable so it
+   can be copied, but not editable. */
+.settings-value {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--fg);
+  opacity: 0.85;
+  user-select: all;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
 .menu-disconnect {
   background: none;
   border: 1px solid var(--border);
