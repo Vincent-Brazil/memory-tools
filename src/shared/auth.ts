@@ -12,12 +12,36 @@ export const getPat = () => localStorage.getItem(PAT_KEY);
 export const setPat = (pat: string) => localStorage.setItem(PAT_KEY, pat);
 export const clearPat = () => localStorage.removeItem(PAT_KEY);
 
+/** Repos that have been renamed on GitHub, keyed "owner/old" -> "new".
+ *
+ * The target repo is stored per device in localStorage and there is no UI to edit it —
+ * the settings panel only offers "Disconnect device", which also throws away the PAT. So
+ * without this, a rename means disconnecting and re-pasting the token on every device.
+ * GitHub redirects git operations after a rename but a REST write is not worth trusting
+ * to a 301, so correct it instead of relying on it.
+ *
+ * Safe to delete once every device has loaded the app at least once after the rename. */
+const RENAMED_REPOS: Record<string, string> = {
+  // 2026-08-20: the brain repo, renamed from `memory`.
+  'Vincent-Brazil/memory': 'brain',
+};
+
 export function getRepo(): RepoConfig | null {
+  let stored: RepoConfig | null;
   try {
-    return JSON.parse(localStorage.getItem(REPO_KEY) ?? 'null');
+    stored = JSON.parse(localStorage.getItem(REPO_KEY) ?? 'null');
   } catch {
     return null;
   }
+  if (!stored?.owner || !stored?.repo) return stored;
+
+  const renamed = RENAMED_REPOS[`${stored.owner}/${stored.repo}`];
+  if (!renamed) return stored;
+
+  // Rewrite it so this runs once per device rather than on every read.
+  const corrected = { owner: stored.owner, repo: renamed };
+  setRepo(corrected);
+  return corrected;
 }
 
 export const setRepo = (config: RepoConfig) => localStorage.setItem(REPO_KEY, JSON.stringify(config));
