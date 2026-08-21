@@ -124,12 +124,16 @@ app.post(
     const token = req.get('x-github-token');
     if (!token) return res.status(401).json({ error: 'Missing GitHub token.' });
 
-    const { question, context } = req.body ?? {};
-    if (typeof question !== 'string' || !question.trim()) {
-      return res.status(400).json({ error: 'No question.' });
+    // The whole prompt is assembled in the browser, because that is where the
+    // memory repo is readable: the instructions include the brain's own
+    // self-describing files, fetched at question time. The server adds the key
+    // and nothing else.
+    const { prompt } = req.body ?? {};
+    if (typeof prompt !== 'string' || !prompt.trim()) {
+      return res.status(400).json({ error: 'No prompt.' });
     }
-    if (typeof context !== 'string' || context.length > MAX_CONTEXT_CHARS) {
-      return res.status(400).json({ error: 'Missing or oversized grounding context.' });
+    if (prompt.length > MAX_CONTEXT_CHARS) {
+      return res.status(400).json({ error: 'Prompt too large.' });
     }
 
     try {
@@ -148,13 +152,13 @@ app.post(
       // a second copy of the pattern list -- and duplicated pattern lists are
       // exactly what went wrong with review.py. Set WORK_CONTENT_PATTERNS to add
       // a server-side backstop if that trade ever stops being acceptable.
-      const backstop = serverSideWorkScreen(context);
+      const backstop = serverSideWorkScreen(prompt);
       if (backstop) {
         return res.status(422).json({ error: `Refused: the context matched ${backstop}.` });
       }
 
       const result = await route({
-        prompt: `${context}\n\nQuestion: ${question}`,
+        prompt,
         domain: 'personal',
         tag: MODEL_TAG,
         providers: PROVIDERS,

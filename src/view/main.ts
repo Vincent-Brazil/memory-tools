@@ -16,6 +16,8 @@ import { getTheme, applyTheme } from '../shared/theme';
 import { renderSettingsWidget, wireSettingsWidget } from '../shared/settingsWidget';
 import { showInboxReview } from './triage';
 import { inboxPageActionFor, inboxReviewHash, inboxReviewItemFromRoute, type InboxPageAction } from './inboxLifecycle';
+import { mountAssistant, renderAssistantPanel } from './assistant';
+import { extractTerms, scoreOverlap, searchableName, type RetrievalCorpus } from './retrieval';
 
 applyTheme(getTheme());
 
@@ -62,23 +64,6 @@ interface GraphEdge {
   target: string;
   inferred?: boolean;
 }
-
-// Common words filtered out before scoring content overlap between files —
-// deliberately small and blunt (this only needs to beat "shares a stopword"
-// as a bar, not do real NLP).
-const STOPWORDS = new Set([
-  'the', 'and', 'a', 'an', 'to', 'of', 'in', 'on', 'for', 'with', 'is', 'are', 'was', 'were', 'this', 'that', 'it',
-  'as', 'by', 'or', 'be', 'at', 'from', 'not', 'but', 'if', 'so', 'we', 'i', 'you', 'your', 'our', 'can', 'will',
-  'would', 'should', 'could', 'has', 'have', 'had', 'do', 'does', 'did', 'than', 'then', 'there', 'their', 'they',
-  'them', 'he', 'she', 'his', 'her', 'its', 'my', 'me', 'us', 'also', 'just', 'into', 'over', 'under', 'about',
-  'more', 'most', 'some', 'any', 'all', 'each', 'other', 'such', 'only', 'own', 'same', 'no', 'nor', 'too', 'very',
-  'one', 'two', 'three', 'new', 'via', 'per', 'out', 'up', 'down', 'off', 'how', 'what', 'when', 'where', 'why',
-  'which', 'who', 'whom', 'been', 'being', 'because', 'while', 'after', 'before', 'both', 'once', 'here', 'again',
-  // Pure URL-structure artifacts from link captures (github.com/owner/repo)
-  // — always present, never topical, and without these every link share
-  // "matches" every other link share regardless of what it's actually about.
-  'github', 'com', 'https', 'http', 'www',
-]);
 
 function currentPath(): string {
   const hash = decodeURIComponent(location.hash.replace(/^#\/?/, ''));
@@ -299,9 +284,9 @@ async function boot() {
 
   const ric = (window as typeof window & { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => void })
     .requestIdleCallback;
-  const kickOffBacklinks = () => void ensureBacklinksIndex(pat);
-  if (ric) ric(kickOffBacklinks, { timeout: 4000 });
-  else setTimeout(kickOffBacklinks, 800);
+  const kickOffCorpus = () => void ensureCorpus(pat);
+  if (ric) ric(kickOffCorpus, { timeout: 4000 });
+  else setTimeout(kickOffCorpus, 800);
 
   wireSwipeNav();
   wireKeyboardNav();
@@ -329,6 +314,7 @@ function shell(): string {
     <div class="viewer">
       <button id="sidebar-toggle" class="sidebar-toggle-btn" type="button" aria-label="Toggle navigation">&#9776;</button>
       <div class="top-controls">
+        <button id="assistant-toggle" class="ctrl-btn" type="button" aria-pressed="false" aria-label="Ask memory"><span class="ctrl-label">ask &gt;</span></button>
         <a href="../" class="ctrl-btn" aria-label="Back to Capture"><span class="ctrl-label">&lt; capture</span></a>
       </div>
       <aside id="sidebar" class="sidebar">
@@ -357,6 +343,8 @@ function shell(): string {
         </div>
         <main id="content" class="doc"><p class="hint">Loading…</p></main>
       </div>
+      <div id="assistant-backdrop" class="assistant-backdrop" hidden></div>
+      ${renderAssistantPanel()}
     </div>
   `;
 }
@@ -379,16 +367,25 @@ function playPageEnterAnimation(content: HTMLElement) {
   content.classList.add(cls);
 }
 
-let backlinksIndexPromise: Promise<Map<string, Set<string>>> | null = null;
+interface Corpus {
+  paths: string[];
+  bodies: Map<string, string>;
+  /** Who points at this file: explicit links in, plus plain-text name mentions. */
+  backlinks: Map<string, Set<string>>;
+  /** Explicit links out of this file. */
+  outgoing: Map<string, Set<string>>;
+}
+
+let corpusPromise: Promise<Corpus> | null = null;
 
 // Built once, lazily, at idle time — every page load doing its own full-repo
 // scan would make ordinary navigation feel like the graph/triage builds.
-// Reuses the same explicit-link + plain-text-mention detection the graph's
-// orphan check uses, just inverted (who points at this page, not who does
-// this page point at).
-async function buildBacklinksIndex(pat: string, paths: string[]): Promise<Map<string, Set<string>>> {
+// Feeds two consumers: the backlinks section under each page, and the
+// assistant panel's retrieval. Uses the same explicit-link + plain-text-mention
+// detection the graph's orphan check uses.
+async function buildCorpus(pat: string, paths: string[]): Promise<Corpus> {
   const knownPaths = new Set(paths);
-  const bodyByPath = new Map<string, string>();
+  const bodies = new Map<string, string>();
 
   let index = 0;
   const worker = async () => {
@@ -396,23 +393,25 @@ async function buildBacklinksIndex(pat: string, paths: string[]): Promise<Map<st
       const path = paths[index++];
       try {
         const raw = await getFileContent(pat, path);
-        bodyByPath.set(path, parseFrontmatter(raw).body);
+        bodies.set(path, parseFrontmatter(raw).body);
       } catch {
-        bodyByPath.set(path, '');
+        bodies.set(path, '');
       }
     }
   };
   await Promise.all(Array.from({ length: GRAPH_FETCH_CONCURRENCY }, worker));
 
   const backlinks = new Map<string, Set<string>>();
+  const outgoing = new Map<string, Set<string>>();
   const addRef = (target: string, source: string) => {
     if (target === source) return;
     if (!backlinks.has(target)) backlinks.set(target, new Set());
     backlinks.get(target)!.add(source);
   };
 
-  bodyByPath.forEach((body, path) => {
+  bodies.forEach((body, path) => {
     const { resolved } = extractLinks(body, path, knownPaths);
+    outgoing.set(path, resolved);
     resolved.forEach((target) => addRef(target, path));
   });
 
@@ -422,25 +421,43 @@ async function buildBacklinksIndex(pat: string, paths: string[]): Promise<Map<st
     const name = searchableName(target);
     if (name.length < 4) return;
     const re = new RegExp(`\\b${escapeRegExp(name)}\\b`, 'i');
-    bodyByPath.forEach((body, path) => {
+    bodies.forEach((body, path) => {
       if (path !== target && re.test(body)) addRef(target, path);
     });
   });
 
-  return backlinks;
+  return { paths, bodies, backlinks, outgoing };
 }
 
-function ensureBacklinksIndex(pat: string): Promise<Map<string, Set<string>>> {
-  if (!backlinksIndexPromise) backlinksIndexPromise = buildBacklinksIndex(pat, navOrder);
-  return backlinksIndexPromise;
+function ensureCorpus(pat: string): Promise<Corpus> {
+  if (!corpusPromise) corpusPromise = buildCorpus(pat, navOrder);
+  return corpusPromise;
+}
+
+/** The three things the assistant needs, and nothing else — so rebuilding the
+ * graph means re-pointing `related` here rather than touching retrieval. */
+async function assistantCorpus(pat: string): Promise<RetrievalCorpus> {
+  const corpus = await ensureCorpus(pat);
+  return {
+    // `text` and `excerptFor` both come from the one session cache today. After
+    // RESTRUCTURE-PLAN Phase 7 `text` comes from the merged graph.json and only
+    // `excerptFor` touches the network — retrieval itself does not change.
+    nodes: corpus.paths.map((path) => ({
+      id: path,
+      name: searchableName(path),
+      text: corpus.bodies.get(path) ?? '',
+    })),
+    excerptFor: (id) => corpus.bodies.get(id) ?? '',
+    related: (id) => [...new Set([...(corpus.outgoing.get(id) ?? []), ...(corpus.backlinks.get(id) ?? [])])],
+  };
 }
 
 async function renderBacklinksSection(pat: string, path: string) {
-  const index = await ensureBacklinksIndex(pat);
+  const { backlinks } = await ensureCorpus(pat);
   if (currentPath() !== path) return; // navigated away before this resolved
   const slot = document.querySelector<HTMLElement>('#backlinks-slot');
   if (!slot) return;
-  const refs = Array.from(index.get(path) ?? []).sort();
+  const refs = Array.from(backlinks.get(path) ?? []).sort();
   if (!refs.length) return;
   slot.innerHTML = `
     <section class="backlinks">
@@ -516,6 +533,7 @@ function wireShell(pat: string) {
   });
 
   renderRecentPagesSection();
+  mountAssistant(pat, () => assistantCorpus(pat));
 
   document.querySelector<HTMLButtonElement>('#inbox-action-btn')!.addEventListener('click', () => void handleInboxPageAction(pat));
 
@@ -802,49 +820,6 @@ function extractLinks(body: string, path: string, knownPaths: Set<string>): { re
   }
 
   return { resolved, broken };
-}
-
-// Top N most-frequent significant words in a doc, used as a cheap
-// content "signature" for inferring relatedness — no embeddings/backend,
-// just enough to beat noise for a triage hint.
-function extractTerms(body: string): Set<string> {
-  const words = body
-    .toLowerCase()
-    .replace(/`[^`]*`/g, ' ')
-    .replace(/\[\[([a-z0-9\-_]+)\]\]/g, ' $1 ')
-    .replace(/[^a-z0-9]+/g, ' ')
-    .split(' ')
-    .filter((w) => w.length > 2 && !/^\d+$/.test(w) && !STOPWORDS.has(w));
-  const freq = new Map<string, number>();
-  words.forEach((w) => freq.set(w, (freq.get(w) ?? 0) + 1));
-  return new Set(
-    Array.from(freq.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 15)
-      .map(([w]) => w)
-  );
-}
-
-// Shared *rare* terms count for more than shared common ones (a cheap
-// IDF stand-in) — otherwise words generic to this whole corpus (memory,
-// claude, capture...) would dominate every match with no real signal.
-function scoreOverlap(a: Set<string>, b: Set<string>, docFreq: Map<string, number>): { score: number; shared: string[] } {
-  const shared: { term: string; weight: number }[] = [];
-  a.forEach((term) => {
-    if (!b.has(term)) return;
-    shared.push({ term, weight: 1 / Math.log2(2 + (docFreq.get(term) ?? 1)) });
-  });
-  shared.sort((x, y) => y.weight - x.weight);
-  return { score: shared.reduce((sum, s) => sum + s.weight, 0), shared: shared.slice(0, 4).map((s) => s.term) };
-}
-
-// The searchable "name" for a plain-text mention check — for most files
-// that's just the basename, but every skill file is literally named
-// SKILL.md, so the meaningful name is its folder instead.
-function searchableName(path: string): string {
-  const skillMatch = path.match(/^\.claude\/skills\/([^/]+)\//);
-  if (skillMatch) return skillMatch[1];
-  return path.split('/').pop()!.replace(/\.md$/, '');
 }
 
 function escapeRegExp(s: string): string {
