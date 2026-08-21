@@ -25,7 +25,11 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run typecheck
+      # Pages serves this repo from a subpath; Railway serves it from the root
+      # and sets nothing. See the comment on `base` in vite.config.ts.
       - run: npm run build
+        env:
+          VITE_BASE: /memory-tools/
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

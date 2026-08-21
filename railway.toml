@@ -1,0 +1,30 @@
+# Railway serves both apps from `/`; GitHub Pages serves them from
+# `/memory-tools/` while the two run in parallel. The difference is one variable
+# — see the comment on `base` in vite.config.ts. Do NOT set VITE_BASE here: its
+# absence is what makes this build root-mounted.
+[build]
+buildCommand = "npm run build"
+
+[deploy]
+startCommand = "npm start"
+
+# Installing the private `toolbelt-llm-router` dependency needs git auth, and none
+# of it belongs in buildCommand. This is copied from `me`'s railway.toml rather
+# than rediscovered — the knowledge cost two failed deploys in discord-relay:
+#
+# 1. WRONG PHASE. Railpack runs its own auto-detected `npm install` as an INSTALL
+#    phase, before buildCommand's BUILD phase runs at all. A git rewrite in
+#    buildCommand is too late — the credential-less install has already failed
+#    with exit 128. It goes in the RAILPACK_INSTALL_CMD service variable, which
+#    overrides that earlier phase.
+# 2. REWRITE THE SSH FORMS TOO. npm tries `ssh://git@github.com/` for GitHub even
+#    when package.json asks for `git+https://`. Cover `https://github.com/`,
+#    `ssh://git@github.com/` and `git@github.com:`.
+# 3. USE GIT_CONFIG_* ENV VARS, NOT `git config --global` — global config writes
+#    did not reach npm's internal git subprocess.
+#
+# So this service needs these variables set in Railway, not in this file:
+#   RAILPACK_INSTALL_CMD  the three rewrites, then npm install  (copy from `me`)
+#   TOOLBELT_TOKEN        PAT, Contents:Read on Vincent-Brazil/toolbelt
+#   OPENROUTER_API_KEY    read from process.env by the router
+#   DEEPSEEK_API_KEY      the router's other provider
