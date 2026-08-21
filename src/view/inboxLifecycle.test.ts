@@ -50,3 +50,16 @@ test('a direct Inbox item can target its exact proposal in review', () => {
     assert.equal(inboxReviewItemFromRoute('triage?item=inbox/capture with spaces.md'), path);
     assert.equal(inboxReviewItemFromRoute('triage?item=projects/example.md'), null);
 });
+
+test('a work-refused item opens for review rather than offering a retry', () => {
+    const action = inboxPageActionFor('inbox/capture.md', 'needs_work_laptop');
+    // 'review' and not 'blocked': a blocked action dispatches another processing run, which
+    // would refuse the item again for the same reason and then poll until it timed out.
+    assert.equal(action.type, 'review');
+    assert.equal(action.label, 'Needs the work laptop');
+    assert.match(action.description, /work laptop/);
+});
+
+test('an unknown status still renders no action, which is why the case above exists', () => {
+    assert.equal(inboxPageActionFor('inbox/capture.md', 'something_new').type, 'none');
+});

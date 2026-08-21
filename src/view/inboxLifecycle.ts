@@ -58,6 +58,26 @@ export function inboxPageActionFor(path: string, status = 'captured'): InboxPage
                 label: 'Open in Inbox review',
                 description: 'Processing needs attention; retry it from Inbox review.',
             };
+        // Set by the inbox processor when a capture looks like work content. It is REFUSED, not
+        // failed: the daily run happens in GitHub Actions, which has no local Claude CLI, and
+        // work content must never reach a hosted provider. It needs the work laptop.
+        //
+        // Its own status rather than needs_attention, so it cannot hide among items that errored
+        // — and it needs a case here, because an unrecognised status falls through to
+        // `type: 'none'` and renders with no action at all, which is exactly the silent stall the
+        // separate status exists to prevent.
+        // 'review', not 'blocked', deliberately. A 'blocked' action dispatches another
+        // processing run, which would refuse this item again for the same reason — and the
+        // waiter would sit for four minutes because a refusal sets neither 'ready' nor an
+        // attempt count. 'review' opens the item so the reason can be read instead.
+        case 'needs_work_laptop':
+            return {
+                type: 'review',
+                label: 'Needs the work laptop',
+                description:
+                    'This capture looks like work content, so it was not sent to a hosted model. '
+                    + 'Process it on the work laptop, where the local Claude CLI is available.',
+            };
         default:
             return { type: 'none', label: '', description: '' };
     }

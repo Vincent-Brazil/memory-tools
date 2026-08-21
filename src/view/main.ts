@@ -681,7 +681,15 @@ async function waitForInboxProcessing(pat: string, path: string): Promise<void> 
     const raw = await fetchFileContent(pat, path);
     const { meta } = parseFrontmatter(raw);
     const attempts = Number(meta.processing_attempts ?? meta.shaping_attempts ?? meta.preparation_attempts) || 0;
-    if (meta.status === 'ready' || meta.status === 'needs_attention' || attempts > 0) {
+    // needs_work_laptop is a terminal outcome for this run, and it sets neither 'ready' nor an
+    // attempt count — without it here, pressing Process on a work-looking capture would poll for
+    // four minutes and then time out, when the answer arrived on the first pass.
+    if (
+      meta.status === 'ready'
+      || meta.status === 'needs_attention'
+      || meta.status === 'needs_work_laptop'
+      || attempts > 0
+    ) {
       contentCache.delete(path);
       await loadPage(pat, path);
       return;
