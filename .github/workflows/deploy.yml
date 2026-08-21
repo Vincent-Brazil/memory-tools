@@ -31,6 +31,23 @@ jobs:
       # ignores. Scoped to this step so the token is never written to
       # GITHUB_ENV. The token goes in the USERNAME position: x-access-token:<token>
       # is the GitHub App convention and 404s with a fine-grained PAT.
+      # TEMPORARY: remove once the credential is proven. Prints the token's type
+      # and what the API says about it, never the value.
+      - name: Diagnose the toolbelt credential
+        env:
+          TOK: ${{ secrets.TOOLBELT_TOKEN }}
+        run: |
+          echo "length: ${#TOK}"
+          case "$TOK" in
+            github_pat_*) echo "type: fine-grained PAT" ;;
+            ghp_*)        echo "type: classic PAT" ;;
+            gho_*)        echo "type: gh OAuth token" ;;
+            ghs_*)        echo "type: App installation token" ;;
+            "")           echo "type: EMPTY - the secret is not reaching this step" ;;
+            *)            echo "type: unrecognised prefix" ;;
+          esac
+          echo "GET /repos/Vincent-Brazil/toolbelt -> $(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOK" https://api.github.com/repos/Vincent-Brazil/toolbelt)"
+          echo "GET /user                          -> $(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOK" https://api.github.com/user)"
       - run: npm ci
         env:
           GIT_CONFIG_COUNT: '3'
