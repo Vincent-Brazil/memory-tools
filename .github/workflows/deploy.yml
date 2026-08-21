@@ -29,15 +29,16 @@ jobs:
       # rewrite the ssh forms as well as https, and do it with GIT_CONFIG_* env
       # vars rather than `git config --global`, which npm's git subprocess
       # ignores. Scoped to this step so the token is never written to
-      # GITHUB_ENV. Verified against the real repo before committing.
+      # GITHUB_ENV. The token goes in the USERNAME position: x-access-token:<token>
+      # is the GitHub App convention and 404s with a fine-grained PAT.
       - run: npm ci
         env:
           GIT_CONFIG_COUNT: '3'
-          GIT_CONFIG_KEY_0: url.https://x-access-token:${{ secrets.TOOLBELT_TOKEN }}@github.com/.insteadOf
+          GIT_CONFIG_KEY_0: url.https://${{ secrets.TOOLBELT_TOKEN }}@github.com/.insteadOf
           GIT_CONFIG_VALUE_0: https://github.com/
-          GIT_CONFIG_KEY_1: url.https://x-access-token:${{ secrets.TOOLBELT_TOKEN }}@github.com/.insteadOf
+          GIT_CONFIG_KEY_1: url.https://${{ secrets.TOOLBELT_TOKEN }}@github.com/.insteadOf
           GIT_CONFIG_VALUE_1: ssh://git@github.com/
-          GIT_CONFIG_KEY_2: url.https://x-access-token:${{ secrets.TOOLBELT_TOKEN }}@github.com/.insteadOf
+          GIT_CONFIG_KEY_2: url.https://${{ secrets.TOOLBELT_TOKEN }}@github.com/.insteadOf
           GIT_CONFIG_VALUE_2: 'git@github.com:'
       - run: npm test
       - run: npm run typecheck
