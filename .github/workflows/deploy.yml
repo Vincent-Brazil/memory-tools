@@ -22,7 +22,23 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      # `toolbelt-llm-router` is a private GitHub dependency, and npm resolves it
+      # over ssh even though package.json asks for the `github:` shorthand — so a
+      # credential-less runner fails with "Permission denied (publickey)", exit
+      # 128. Same three gotchas Railway hit, documented in railway.toml:
+      # rewrite the ssh forms as well as https, and do it with GIT_CONFIG_* env
+      # vars rather than `git config --global`, which npm's git subprocess
+      # ignores. Scoped to this step so the token is never written to
+      # GITHUB_ENV. Verified against the real repo before committing.
       - run: npm ci
+        env:
+          GIT_CONFIG_COUNT: '3'
+          GIT_CONFIG_KEY_0: url.https://x-access-token:${{ secrets.TOOLBELT_TOKEN }}@github.com/.insteadOf
+          GIT_CONFIG_VALUE_0: https://github.com/
+          GIT_CONFIG_KEY_1: url.https://x-access-token:${{ secrets.TOOLBELT_TOKEN }}@github.com/.insteadOf
+          GIT_CONFIG_VALUE_1: ssh://git@github.com/
+          GIT_CONFIG_KEY_2: url.https://x-access-token:${{ secrets.TOOLBELT_TOKEN }}@github.com/.insteadOf
+          GIT_CONFIG_VALUE_2: 'git@github.com:'
       - run: npm test
       - run: npm run typecheck
       # Pages serves this repo from a subpath; Railway serves it from the root
